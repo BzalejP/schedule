@@ -1,0 +1,1154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Staff Scheduler</title>
+<style>
+:root{--bg:#f5f6f8;--panel:#fff;--ink:#15181d;--muted:#667085;--line:#e3e6eb;--accent:#1d4ed8;--accent-ink:#fff;--bad:#c81e1e;--bad-bg:#fde8e8;--ok-bg:#e9f7ef;--over-bg:#eef2ff;--warn:#a15c07;--warn-bg:#fff4e0;--chip:#eef1f5}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1115;--panel:#181b21;--ink:#e8eaed;--muted:#98a2b3;--line:#2a2f37;--accent:#60a5fa;--accent-ink:#0b1220;--bad:#f87171;--bad-bg:#3a1616;--ok-bg:#13261b;--over-bg:#1c2240;--warn:#fbbf24;--warn-bg:#2d2310;--chip:#242932}}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+button,input,select,textarea{font:inherit;color:inherit}
+button{background:var(--chip);border:1px solid var(--line);border-radius:8px;padding:6px 11px;cursor:pointer}
+button:hover{filter:brightness(.97)}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+button.big{padding:9px 16px;font-weight:600}
+button.danger{color:var(--bad)}
+button.link{background:none;border:none;padding:2px 4px;color:var(--accent)}
+button.x{background:none;border:none;padding:0 4px;color:var(--muted)}
+input,select,textarea{background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:5px 7px}
+input[type=checkbox]{padding:0}
+header{display:flex;align-items:center;gap:14px;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5;flex-wrap:wrap}
+header h1{font-size:17px;margin:0}
+nav{display:flex;gap:4px}
+nav button{background:none;border-color:transparent}
+nav button.active{background:var(--chip);border-color:var(--line);font-weight:600}
+.badge{margin-left:auto;font-size:12px;padding:3px 9px;border-radius:99px;background:var(--chip);color:var(--muted)}
+.badge.online{background:var(--ok-bg);color:inherit}
+.badge.error,.badge.signin{background:var(--warn-bg);color:var(--warn)}
+main{padding:16px;max-width:1500px;margin:0 auto}
+.muted{color:var(--muted);font-weight:400}
+.spacer{flex:1}
+.datebar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.datebar .wd{font-size:18px;font-weight:600;margin-left:6px}
+.day-grid{display:grid;grid-template-columns:360px minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:950px){.day-grid{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:14px}
+.card h3{margin:0 0 10px;font-size:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.card h3 .acts{margin-left:auto;display:flex;gap:4px}
+.card h3 .acts button{padding:3px 8px;font-size:12px;font-weight:400}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border-radius:99px;padding:5px 11px;background:var(--panel)}
+.chip.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.chip small{opacity:.8}
+.hrow{display:flex;align-items:center;gap:6px;padding:4px 0;flex-wrap:wrap}
+.hrow{flex-wrap:nowrap}
+.bookrow{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding-left:16px}
+.book{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--muted)}
+.book input{width:100%;font-size:15px;color:var(--ink)}
+.hblock{padding:4px 0;border-bottom:1px dashed var(--line)}
+.hblock:last-child{border-bottom:none}
+.periods{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;padding-left:16px}
+.per{display:flex;align-items:center;gap:3px}
+.per select{padding:3px 2px;font-size:13px}
+.hrow select{padding:3px 2px;font-size:13px}
+.hname{min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mini{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:3px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;flex:none}
+.addrow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.addrow input:not([type=number]){flex:1;min-width:90px}
+.grp{margin-top:8px}
+.grp-h{display:flex;align-items:center;gap:6px;font-weight:600;font-size:13px;margin-bottom:2px}
+.li{display:flex;align-items:center;gap:8px;padding:3px 0 3px 16px;border-bottom:1px dashed var(--line)}
+.li:last-child{border-bottom:none}
+.li .warn{color:var(--warn);font-size:12px}
+.li .x{margin-left:auto}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.alerts{margin-bottom:10px;display:flex;flex-direction:column;gap:5px}
+.alert{padding:7px 11px;border-radius:8px;font-size:13px}
+.alert.bad{background:var(--bad-bg);color:var(--bad)}
+.alert.warn{background:var(--warn-bg);color:var(--warn)}
+.alert.info{background:var(--chip)}
+.tl-wrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 10px}
+.tl-row{display:grid;grid-template-columns:var(--cols);align-items:center;min-height:30px}
+.tl-head{position:sticky;top:0;font-size:11px;color:var(--muted);border-bottom:1px solid var(--line)}
+.tl-time{border-left:1px solid var(--line);padding-left:3px;height:20px}
+.tl-time.half{border-left-style:dotted}
+.tl-lab{padding-right:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px}
+.tl-sp{display:flex;align-items:center;gap:8px;padding:12px 0 4px;border-top:1px solid var(--line);margin-top:6px}
+.tl-sp:first-of-type{border-top:none}
+.tl-bar{height:24px;border-radius:6px;color:#fff;font-size:12px;padding:3px 8px;white-space:nowrap;overflow:hidden;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(0,0,0,.1)}
+.tl-bar span{opacity:.85}
+.tl-brk{height:24px;z-index:2;pointer-events:none;border-radius:3px;background:repeating-linear-gradient(135deg,rgba(255,255,255,.85) 0 4px,rgba(255,255,255,.35) 4px 8px)}
+.tl-bar{position:relative}
+.signrow{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-top:10px;padding-top:8px;border-top:1px dashed var(--line);font-size:12px}
+.chip.small{padding:2px 9px;font-size:12px}
+.tl-cov{min-height:24px}
+.cov{font-size:10.5px;text-align:center;height:22px;line-height:22px;border-left:1px solid var(--panel)}
+.cov.short{background:var(--bad-bg);color:var(--bad);font-weight:700}
+.cov.ok{background:var(--ok-bg)}
+.cov.over{background:var(--over-bg)}
+.empty{padding:30px;text-align:center;color:var(--muted)}
+.setup-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:14px}
+@media (max-width:500px){.setup-grid{grid-template-columns:1fr}}
+.sp-top{display:flex;gap:6px;align-items:center;margin-bottom:10px}
+.sp-top input[type=text]{flex:1;font-weight:600}
+.sp-top input[type=color]{width:34px;height:30px;padding:2px}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;margin-bottom:10px}
+.fields label{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)}
+.fields input{width:70px}
+table{border-collapse:collapse;width:100%}
+td,th{padding:4px 6px;text-align:left;border-bottom:1px solid var(--line);font-size:13px}
+th{color:var(--muted);font-weight:500;font-size:12px}
+.allowed{display:flex;flex-wrap:wrap;gap:4px 10px}
+.pgrp{display:inline-flex;gap:8px;align-items:center;padding:2px 8px;border:1px solid var(--line);border-radius:7px}
+.pgrp b{font-size:12px;font-weight:600}
+.allowed label{font-size:12px;display:flex;gap:3px;align-items:center;white-space:nowrap}
+.help{font-size:13px;color:var(--muted);margin:0 0 12px}
+pre.code{background:var(--chip);padding:10px;border-radius:8px;overflow:auto;font-size:12px}
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);padding:18px;width:min(380px,92vw)}
+dialog::backdrop{background:rgba(0,0,0,.35)}
+dialog h3{margin:0 0 12px}
+dialog label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted);margin-bottom:10px}
+dialog .row{display:flex;gap:10px}
+dialog .row label{flex:1}
+.dlg-actions{display:flex;gap:8px;margin-top:6px}
+#printArea{display:none}
+@media print{
+  @page{size:landscape;margin:10mm}
+  body{background:#fff;color:#000}
+  body>*:not(#printArea){display:none!important}
+  #printArea{display:block}
+  #printArea pre{font-size:13px}
+  .tl-wrap{border:none;overflow:visible}
+  .tl-bar{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .cov{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Staff Scheduler</h1>
+  <nav>
+    <button data-act="view" data-v="day">Day</button>
+    <button data-act="view" data-v="setup">Setup</button>
+    <button data-act="view" data-v="sync">Sync &amp; backup</button>
+  </nav>
+  <span id="badge" class="badge">Local only</span>
+</header>
+<main>
+  <section id="view-day"></section>
+  <section id="view-setup" hidden></section>
+  <section id="view-sync" hidden></section>
+</main>
+
+<dialog id="dlg">
+  <form id="dlgForm">
+    <h3 id="dlgTitle">Shift</h3>
+    <label>Employee <select name="emp"></select></label>
+    <label>Sales point <select name="sp"></select></label>
+    <div class="row">
+      <label>Start <select name="start"></select></label>
+      <label>End <select name="end"></select></label>
+    </div>
+    <div class="dlg-actions">
+      <button type="button" id="dlgDel" class="danger">Delete</button>
+      <span class="spacer"></span>
+      <button type="button" id="dlgCancel">Cancel</button>
+      <button type="submit" class="primary">Save</button>
+    </div>
+  </form>
+</dialog>
+<input type="file" id="importFile" accept=".json,application/json" hidden>
+<div id="printArea"></div>
+
+<script>
+/* ============ Basics ============ */
+const SLOTS = 48;          // 30-minute slots in a scheduling day
+const DAY0 = 5 * 60;       // the scheduling day runs 05:00 -> 05:00 next morning
+const WD = ['mon','tue','wed','thu','fri','sat','sun'];
+const WDL = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+const LS = 'staffsched.state.v1', LSFB = 'staffsched.firebase.v1';
+const COLORS = ['#2563eb','#7c3aed','#059669','#d97706','#dc2626','#0891b2','#db2777','#4b5563'];
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => Math.random().toString(36).slice(2, 10);
+const pad = n => String(n).padStart(2, '0');
+const clone = o => JSON.parse(JSON.stringify(o));
+
+const toSlot = t => { if (!t) return 0; const [h, m] = t.split(':').map(Number); return Math.floor((((h*60 + m) - DAY0 + 1440) % 1440) / 30); };
+const endSlot = t => { const s = toSlot(t); return s === 0 ? SLOTS : s; };
+const slotTime = i => { const m = (DAY0 + i*30) % 1440; return pad(Math.floor(m/60)) + ':' + pad(m % 60); };
+const timeOpts = sel => { let o = ''; for (let i = 0; i < SLOTS; i++) { const t = slotTime(i); o += `<option${t===sel?' selected':''}>${t}</option>`; } return o; };
+const endOpts = sel => { let o = ''; for (let i = 1; i <= SLOTS; i++) { const t = slotTime(i); o += `<option${t===sel?' selected':''}>${t}</option>`; } return o; };
+const todayStr = () => { const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); };
+const addDays = (ds, n) => { const d = new Date(ds + 'T12:00:00'); d.setDate(d.getDate() + n); return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); };
+const wdIndex = ds => (new Date(ds + 'T12:00:00').getDay() + 6) % 7;
+const fmtDate = ds => new Date(ds + 'T12:00:00').toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
+
+/* ============ Opening hours ============ */
+// A day's hours = list of opening periods; no periods = closed.
+const P = (...pairs) => ({periods: pairs.map(([open, close]) => ({open, close}))});
+const CLOSED = () => ({periods: []});
+function normHours(h) {
+  if (!h) return CLOSED();
+  if (Array.isArray(h.periods)) return {periods: h.periods.map(p => ({open: p.open, close: p.close}))};
+  return h.closed ? CLOSED() : P([h.open || '12:00', h.close || '22:00']); // old single-period format
+}
+const hoursLabel = h => h.periods.length ? h.periods.map(p => p.open + '–' + p.close).join(', ') : 'closed';
+const isOpenAt = (h, s) => h.periods.some(p => s >= toSlot(p.open) && s < endSlot(p.close));
+function defWeek(open, close) { const h = {}; WD.forEach(d => h[d] = P([open, close])); return h; }
+
+// M/F Norröna shoulder season (15.03–30.05.2026 & 05.09–22.11.2026), ship time.
+// "?" closing times on the sheet are entered as LATE.
+const LATE = '02:30';
+const NORRONA_PRESET = 'norrona-shoulder-2026b';
+const NORRONA_SHOULDER = {
+  undirhusid: {mon: P(['09:00', LATE]), tue: P(['10:00', LATE]), wed: P(['17:00', LATE]), thu: P(['17:00', LATE]),
+               fri: P(['09:00', LATE]), sat: P(['09:00', LATE]), sun: P(['12:00', LATE])},
+  laterna:    {mon: P(['08:00', LATE]), tue: P(['07:00', LATE]), wed: P(['07:00', '10:00'], ['17:00', LATE]), thu: P(['17:00', LATE]),
+               fri: P(['08:00', LATE]), sat: P(['08:00', LATE]), sun: P(['07:00', '10:00'], ['12:30', LATE])},
+  noatun:     {mon: P(['07:00', '21:00']), tue: P(['06:00', '21:00']), wed: P(['07:00', '18:00']), thu: P(['07:00', '22:00']),
+               fri: P(['07:00', '22:00']), sat: P(['07:00', '21:00']), sun: P(['07:00', '10:00'], ['12:30', '21:00'])},
+  munkastova: {mon: P(['12:00', '14:00'], ['17:30', '21:00']), tue: P(['13:00', '15:00'], ['17:30', '21:00']), wed: CLOSED(),
+               thu: P(['18:00', '21:30']), fri: P(['12:00', '14:00'], ['18:00', '21:30']), sat: P(['12:00', '14:00'], ['17:30', '21:00']),
+               sun: P(['17:30', '21:00'])},
+  // Buffet (breakfast + dinner)
+  skansagardur: {mon: P(['07:00', '10:00'], ['17:30', '21:00']), tue: P(['06:00', '09:00'], ['17:30', '21:00']),
+                 wed: P(['07:00', '10:00'], ['18:30', '22:00']), thu: P(['07:00', '10:00'], ['18:30', '22:00']),
+                 fri: P(['07:00', '10:00'], ['18:00', '21:30']), sat: P(['07:00', '10:00'], ['17:30', '21:00']),
+                 sun: P(['07:00', '10:00'], ['17:30', '21:00'])}
+};
+function applyNorrona(c) {
+  c.salesPoints.forEach(sp => { if (NORRONA_SHOULDER[sp.id]) sp.hours = clone(NORRONA_SHOULDER[sp.id]); });
+  c.hoursPreset = NORRONA_PRESET;
+}
+// Booking types per sales point. Each type has a time window; booked guests in that window add
+// +1 staff for every full "perStaff" guests (0 = doesn't affect staffing).
+const BT = (key, label, from, to, perStaff = 20) => ({key, label, from, to, perStaff});
+const DEFAULT_BOOKING_TYPES = {
+  noatun: [BT('breakfast', 'Breakfast', '07:00', '10:00'), BT('lunch', 'Lunch', '12:00', '14:00'),
+           BT('dinner', 'Dinner', '18:00', '20:00'), BT('driver', 'Driver meal', '18:00', '20:00')],
+  skansagardur: [BT('breakfast', 'Breakfast', '07:00', '10:00'), BT('lunch', 'Lunch', '12:00', '14:00'),
+                 BT('dinner', 'Dinner', '18:00', '21:00')],
+  munkastova: [BT('lunch', 'Lunch', '12:00', '14:00'), BT('dinner', 'Dinner', '18:00', '21:00'),
+               BT('fruit', 'Fruit basket', '15:00', '17:00', 0)]
+};
+// Work positions: what an employee can be scheduled for. Each belongs to one sales point and
+// covers a part of the day; "05:00"–"05:00" = the whole day.
+const POS = (key, sp, label, from = '05:00', to = '05:00') => ({key, sp, label, from, to});
+const DEFAULT_POSITIONS = [
+  ...[['laterna', 'Laterna Magica'], ['undirhusid', 'Undirhusid'], ['noatun', 'Noatun']].flatMap(([id, name]) => [
+    POS(id + '-morning', id, name + ' morning', '05:00', '12:00'),
+    POS(id + '-day', id, name + ' day', '12:00', '18:00'),
+    POS(id + '-night', id, name + ' night', '18:00', '05:00')]),
+  POS('buffet', 'skansagardur', 'Buffet'),
+  POS('placeur', 'placeur', 'Placeur'),
+  POS('munkastova', 'munkastova', 'Munkastova')
+];
+// Placeur is staffed separately, but is open whenever the buffet (Skansagardur) is open.
+const PLACEUR_SP = {id: 'placeur', name: 'Placeur', type: 'role', color: '#db2777', hoursFrom: 'skansagardur',
+  hours: {}, baseStaff: 1, prepMin: 0, closeMin: 0, bookingTypes: []};
+const shortLabel = (p, sp) => sp && p.label.toLowerCase().startsWith(sp.name.toLowerCase() + ' ') ? p.label.slice(sp.name.length + 1) : p.label;
+
+// Fixed shifts that the generator ALWAYS places first.
+const DEFAULT_FIXED_RULES = [
+  {type: 'headwaiter-open', sp: 'laterna', hours: 10, beforeMin: 60},
+  {type: 'headwaiter-open', sp: 'noatun', hours: 10, beforeMin: 60},
+  {type: 'closer', sp: 'laterna', hours: 10, end: '03:00'},
+  {type: 'closer', sp: 'undirhusid', hours: 10, end: '03:00'},
+  {type: 'headwaiter-split', sp: 'munkastova', parts: [['12:00', '15:00'], ['17:00', '00:00']]}
+];
+function ruleText(r) {
+  const n = esc((spById(r.sp) || {}).name || r.sp);
+  if (r.type === 'headwaiter-open') return `${n} headwaiter works ${r.hours} hours in a row, starting ${r.beforeMin / 60} hour${r.beforeMin === 60 ? '' : 's'} before opening.`;
+  if (r.type === 'closer') return `${n} closing staff works ${r.hours} hours in a row, finishing at ${r.end}.`;
+  if (r.type === 'headwaiter-split') return `${n} headwaiter, on days with 2 service windows, works ${r.parts.map(p => p[0] + '–' + (p[1] === '00:00' ? '24:00' : p[1])).join(' and ')}.`;
+  return '';
+}
+
+// Bring any saved setup up to date; returns true if something changed.
+function ensureConfig(c) {
+  let changed = false;
+  if (!Array.isArray(c.fixedRules)) { c.fixedRules = clone(DEFAULT_FIXED_RULES); changed = true; }
+  c.rules ||= {};
+  if ('maxShiftH' in c.rules) { delete c.rules.maxShiftH; c.rules.minShiftH = 2; changed = true; }
+  const RULE_DEFAULTS = {minShiftH: 2, dayHours: 10, signHours: 5, splitOverH: 1, minRestH: 6, mealBreakMin: 30,
+    meals: [{label: 'Lunch', from: '11:30', to: '13:00'}, {label: 'Dinner', from: '16:30', to: '18:30'}]};
+  for (const k in RULE_DEFAULTS) if (c.rules[k] === undefined) { c.rules[k] = clone(RULE_DEFAULTS[k]); changed = true; }
+  (c.positions || []).forEach(p => { // day now starts 05:00
+    if (p.from === '06:00') { p.from = '05:00'; changed = true; }
+    if (p.to === '06:00') { p.to = '05:00'; changed = true; }
+  });
+  if (!c.salesPoints.some(s => s.id === 'placeur') && c.salesPoints.some(s => s.id === 'skansagardur')) {
+    c.salesPoints.splice(c.salesPoints.findIndex(s => s.id === 'skansagardur') + 1, 0, clone(PLACEUR_SP)); changed = true;
+  }
+  if (!Array.isArray(c.positions)) {
+    c.positions = clone(DEFAULT_POSITIONS).filter(p => c.salesPoints.some(s => s.id === p.sp));
+    c.salesPoints.forEach(sp => { if (!c.positions.some(p => p.sp === sp.id)) c.positions.push(POS(sp.id + '-all', sp.id, sp.name)); });
+    // old format: "can work at" held sales point ids -> give every position at those places
+    c.employees.forEach(e => {
+      const places = new Set(e.allowed || []); if (places.has('skansagardur')) places.add('placeur');
+      e.allowed = c.positions.filter(p => places.has(p.sp)).map(p => p.key);
+    });
+    changed = true;
+  }
+  c.salesPoints.forEach(sp => {
+    if (!Array.isArray(sp.bookingTypes)) { sp.bookingTypes = clone(DEFAULT_BOOKING_TYPES[sp.id] || []); changed = true; }
+    if ('coversPerStaff' in sp || 'resMinutes' in sp || 'dockBoost' in sp) { delete sp.coversPerStaff; delete sp.resMinutes; delete sp.dockBoost; changed = true; }
+  });
+  c.salesPoints.forEach(sp => WD.forEach(d => {
+    const before = JSON.stringify(sp.hours[d]);
+    sp.hours[d] = normHours(sp.hours[d]);
+    if (JSON.stringify(sp.hours[d]) !== before) changed = true;
+  }));
+  if (c.hoursPreset !== NORRONA_PRESET) { applyNorrona(c); changed = true; }
+  return changed;
+}
+
+/* ============ Default setup ============ */
+function defaultConfig() {
+  const sp = (id, name, type, i) => ({
+    id, name, type, color: COLORS[i],
+    hours: clone(NORRONA_SHOULDER[id]),
+    baseStaff: type === 'bar' ? 1 : 2,
+    prepMin: 30, closeMin: 30,
+    bookingTypes: clone(DEFAULT_BOOKING_TYPES[id] || [])
+  });
+  const sps = [
+    sp('laterna', 'Laterna Magica', 'bar', 0),
+    sp('undirhusid', 'Undirhusid', 'bar', 1),
+    sp('munkastova', 'Munkastova', 'restaurant', 2),
+    sp('noatun', 'Noatun', 'restaurant', 3),
+    sp('skansagardur', 'Skansagardur', 'restaurant', 4)
+  ];
+  const all = sps.map(s => s.id);
+  const emp = (name, headAt) => ({id: uid(), name, headAt, allowed: [...all]});
+  return {
+    hoursPreset: NORRONA_PRESET,
+    rules: {},
+    salesPoints: sps,
+    employees: [
+      emp('Tomasz','laterna'), emp('Fridbjorg','laterna'),
+      emp('Smilla','munkastova'), emp('Anna','munkastova'),
+      emp('Emma','noatun'), emp('Kirsten','noatun'),
+      emp('Kip','skansagardur')
+    ]
+  };
+}
+
+/* ============ State ============ */
+let state = {config: defaultConfig(), days: {}};
+try { const s = JSON.parse(localStorage.getItem(LS)); if (s && s.config) state = s; } catch (e) {}
+if (ensureConfig(state.config)) try { localStorage.setItem(LS, JSON.stringify(state)); } catch (e) {}
+let curDate = todayStr();
+let view = 'day';
+
+const cfg = () => state.config;
+const spById = id => cfg().salesPoints.find(s => s.id === id);
+const empById = id => cfg().employees.find(e => e.id === id);
+function getDay(date) {
+  if (!state.days[date]) state.days[date] = {working: [], bookings: {}, hours: {}, shifts: []};
+  const d = state.days[date];
+  d.working ||= []; d.signing ||= []; d.bookings ||= {}; d.hours ||= {}; d.shifts ||= []; d.breaks ||= [];
+  // shifts saved when the day started at 06:00 are moved to the 05:00 grid
+  if (d.slotBase !== DAY0) {
+    const diff = ((d.slotBase ?? 360) - DAY0) / 30;
+    d.shifts.forEach(x => { x.start = Math.min(SLOTS - 1, x.start + diff); x.end = Math.min(SLOTS, x.end + diff); });
+    d.breaks.forEach(x => { x.slot = Math.min(SLOTS - 1, x.slot + diff); });
+    d.slotBase = DAY0;
+  }
+  return d;
+}
+function spHours(sp, date, day) {
+  const src = sp.hoursFrom && sp.hoursFrom !== sp.id && spById(sp.hoursFrom);
+  if (src) return spHours(src, date, day);
+  return normHours((day.hours && day.hours[sp.id]) || sp.hours[WD[wdIndex(date)]]);
+}
+// Which half-hours an employee may work at a sales point (from their ticked positions).
+function empMask(e, spId) {
+  const m = new Array(SLOTS).fill(false);
+  (cfg().positions || []).filter(p => p.sp === spId && e.allowed.includes(p.key))
+    .forEach(p => { for (let s = toSlot(p.from); s < endSlot(p.to); s++) m[s] = true; });
+  if (e.headAt === spId && !m.some(Boolean)) m.fill(true);
+  return m;
+}
+function saveLocal() { try { localStorage.setItem(LS, JSON.stringify(state)); } catch (e) {} }
+
+/* ============ Demand: staff needed per 30-min slot ============ */
+function computeNeed(date, day) {
+  const need = {};
+  for (const sp of cfg().salesPoints) {
+    const arr = new Array(SLOTS).fill(0);
+    need[sp.id] = arr;
+    const h = spHours(sp, date, day);
+    if (!h.periods.length) continue;
+    const pre = Math.ceil((+sp.prepMin || 0) / 30), post = Math.ceil((+sp.closeMin || 0) / 30);
+    const base = Math.max(1, +sp.baseStaff || 1);
+    const open = new Array(SLOTS).fill(false);
+    h.periods.forEach(p => {
+      const o = toSlot(p.open), c = endSlot(p.close); if (c <= o) return;
+      for (let s = o; s < c; s++) open[s] = true;
+      for (let s = Math.max(0, o - pre); s < Math.min(SLOTS, c + post); s++) arr[s] = base;
+    });
+    // Bookings: +1 staff for every full "perStaff" guests, during that booking type's window, while open
+    const bk = day.bookings[sp.id] || {};
+    (sp.bookingTypes || []).forEach(t => {
+      const add = +t.perStaff > 0 ? Math.floor((+bk[t.key] || 0) / +t.perStaff) : 0;
+      if (add) for (let s = toSlot(t.from); s < endSlot(t.to); s++) if (open[s]) arr[s] += add;
+    });
+  }
+  return need;
+}
+function computeCover(day) {
+  const cover = {};
+  cfg().salesPoints.forEach(sp => cover[sp.id] = new Array(SLOTS).fill(0));
+  day.shifts.forEach(s => { if (cover[s.sp]) for (let k = s.start; k < s.end; k++) cover[s.sp][k]++; });
+  (day.breaks || []).forEach(b => { if (cover[b.sp]) for (let k = b.slot; k < b.slot + b.len; k++) cover[b.sp][k]--; });
+  return cover;
+}
+function gapRanges(n, c) {
+  const out = []; let s = 0;
+  while (s < SLOTS) {
+    if (n[s] > c[s]) { let e = s, max = 0; while (e < SLOTS && n[e] > c[e]) { max = Math.max(max, n[e] - c[e]); e++; } out.push({s, e, max}); s = e; }
+    else s++;
+  }
+  return out;
+}
+
+/* ============ Working-time rules ============ */
+const R = () => cfg().rules;
+const targetSlots = (e, day) => Math.round(((day.signing || []).includes(e.id) ? R().signHours : R().dayHours) * 2);
+const minGapSlots = () => Math.round(R().splitOverH * 2) + 1;      // gap must be LONGER than splitOverH
+const minPartSlots = () => Math.max(1, Math.round(R().minShiftH * 2));
+// Earliest slot today that still gives the minimum rest after yesterday's last shift.
+function earliestStart(e, date) {
+  const prev = state.days[addDays(date, -1)];
+  if (!prev || !prev.shifts) return 0;
+  const ends = prev.shifts.filter(s => s.emp === e.id).map(s => s.end); if (!ends.length) return 0;
+  return Math.max(0, Math.round(R().minRestH * 2) - (SLOTS - Math.max(...ends)));
+}
+// An employee's working blocks today (touching shifts merged), sorted.
+function workBlocks(day, empId) {
+  const sh = day.shifts.filter(s => s.emp === empId).sort((a, b) => a.start - b.start), out = [];
+  sh.forEach(s => { const last = out[out.length - 1]; if (last && s.start <= last.end) last.end = Math.max(last.end, s.end); else out.push({start: s.start, end: s.end}); });
+  return out;
+}
+
+// Meal breaks: anyone working through a meal window gets a break inside it, at the slot
+// where their sales point can best spare them. Breaks count as part of the shift.
+function placeBreaks(date, day) {
+  const need = computeNeed(date, day), notes = [];
+  day.breaks = [];
+  const cover = computeCover(day);
+  const bl = Math.max(1, Math.ceil(R().mealBreakMin / 30));
+  cfg().employees.forEach(e => {
+    const mine = day.shifts.filter(s => s.emp === e.id); if (!mine.length) return;
+    R().meals.forEach(m => {
+      const wS = toSlot(m.from), wE = endSlot(m.to);
+      const at = k => mine.find(s => k >= s.start && k < s.end);
+      let free = 0, ok = false;
+      for (let k = wS; k < wE; k++) { if (at(k)) free = 0; else if (++free >= bl) ok = true; }
+      if (ok || !mine.some(s => s.start < wE && s.end > wS)) return; // already free during the meal
+      let bestB = null;
+      for (let k = wS; k + bl <= wE; k++) {
+        const s = at(k); if (!s) continue;
+        let fits = true, spare = 0;
+        for (let j = k; j < k + bl; j++) { const t = at(j); if (!t || t.sp !== s.sp) fits = false; else spare += cover[s.sp][j] - need[s.sp][j]; }
+        if (fits && (!bestB || spare > bestB.spare)) bestB = {slot: k, sp: s.sp, spare};
+      }
+      if (!bestB) { notes.push(`${e.name} has no room for a ${m.label.toLowerCase()} break.`); return; }
+      day.breaks.push({emp: e.id, sp: bestB.sp, slot: bestB.slot, len: bl, meal: m.label});
+      for (let j = bestB.slot; j < bestB.slot + bl; j++) cover[bestB.sp][j]--;
+    });
+  });
+  day.breakNotes = notes;
+}
+
+// Rule check for the day as it stands (also after hand edits).
+function checkRules(date, day) {
+  const out = [];
+  cfg().employees.forEach(e => {
+    const blocks = workBlocks(day, e.id); if (!blocks.length) return;
+    const total = blocks.reduce((a, b) => a + b.end - b.start, 0), want = targetSlots(e, day);
+    if (total !== want) out.push(`${e.name} works ${total / 2}h today (should be ${want / 2}h${want !== R().dayHours * 2 ? ', signing on/off' : ''}).`);
+    if (blocks.length > 2) out.push(`${e.name}'s day is split into ${blocks.length} parts (max 2).`);
+    for (let i = 1; i < blocks.length; i++) {
+      const gap = blocks[i].start - blocks[i - 1].end;
+      if (gap < minGapSlots()) out.push(`${e.name} has a ${gap / 2}h split at ${slotTime(blocks[i - 1].end)}; a split must be longer than ${R().splitOverH}h.`);
+    }
+    const early = earliestStart(e, date);
+    if (blocks[0].start < early) out.push(`${e.name} gets only ${(blocks[0].start + Math.round(R().minRestH * 2) - early) / 2}h rest after yesterday (minimum ${R().minRestH}h).`);
+  });
+  return out.concat(day.breakNotes || []);
+}
+
+/* ============ Schedule generator ============ */
+function generate(date, day) {
+  const {salesPoints: sps, employees} = cfg();
+  const need = computeNeed(date, day);
+  const cover = {}; sps.forEach(sp => cover[sp.id] = new Array(SLOTS).fill(0));
+  const pool = employees.filter(e => day.working.includes(e.id));
+  const used = new Set(), shifts = [], notes = [];
+  const minPart = minPartSlots(), minGap = minGapSlots();
+  const isOpenDay = spId => spHours(spById(spId), date, day).periods.length > 0;
+  const homeOpen = e => e.headAt && spById(e.headAt) && isOpenDay(e.headAt);
+  const place = (e, spId, start, end, fixed) => {
+    start = Math.max(0, start); end = Math.min(SLOTS, end); if (end <= start) return;
+    shifts.push({id: uid(), emp: e.id, sp: spId, start, end, ...(fixed ? {fixed} : {})});
+    used.add(e.id);
+    for (let k = start; k < end; k++) cover[spId][k]++;
+  };
+  const free = () => pool.filter(e => !used.has(e.id));
+  const restOk = (e, start) => start >= earliestStart(e, date);
+
+  // Best day plan for one employee: one block, or two blocks with a gap longer than the
+  // allowed split, totalling their standard hours. Each block stays inside open time
+  // at one sales point and inside their positions. homeWeight favours a headwaiter's place.
+  function bestPlan(e, homeWeight) {
+    const E = earliestStart(e, date), T = targetSlots(e, day);
+    const info = sps.map(sp => {
+      const m = empMask(e, sp.id), n = need[sp.id], c = cover[sp.id], w = homeWeight && sp.id === e.headAt ? homeWeight : 1;
+      const ok = k => k >= E && m[k] && n[k] > 0;
+      const pre = [0]; for (let k = 0; k < SLOTS; k++) pre.push(pre[k] + (ok(k) && n[k] - c[k] > 0 ? w : 0));
+      const run = new Array(SLOTS + 1).fill(0); for (let k = SLOTS - 1; k >= 0; k--) run[k] = ok(k) ? run[k + 1] + 1 : 0;
+      return {sp: sp.id, pre, run};
+    });
+    const gain = (I, a, L) => I.run[a] >= L ? I.pre[a + L] - I.pre[a] : -1;
+    for (let tot = T; tot >= Math.min(minPart, T); tot--) {
+      let bp = null;
+      const consider = (score, parts) => { if (!bp || score > bp.score) bp = {score, parts, tot}; };
+      for (const I of info) for (let a = 0; a + tot <= SLOTS; a++) { const g = gain(I, a, tot); if (g >= 0) consider(g * 10 + 1, [{sp: I.sp, a, L: tot}]); }
+      for (let L1 = minPart; L1 <= tot - minPart; L1++) {
+        const L2 = tot - L1, suf = new Array(SLOTS + 1).fill(null);
+        for (let s = SLOTS - 1; s >= 0; s--) {
+          suf[s] = suf[s + 1];
+          for (const I of info) { const g = gain(I, s, L2); if (g >= 0 && (!suf[s] || g > suf[s].g)) suf[s] = {g, sp: I.sp, a: s}; }
+        }
+        for (const I of info) for (let a = 0; a + L1 + minGap < SLOTS; a++) {
+          const g = gain(I, a, L1); if (g < 0) continue;
+          const b = suf[a + L1 + minGap]; if (!b) continue;
+          consider((g + b.g) * 10, [{sp: I.sp, a, L: L1}, {sp: b.sp, a: b.a, L: L2}]);
+        }
+      }
+      if (bp) return bp;
+    }
+    return null;
+  }
+  const assignPlan = (e, plan) => {
+    plan.parts.forEach(p => place(e, p.sp, p.a, p.a + p.L));
+    if (plan.tot < targetSlots(e, day)) notes.push(`${e.name} only gets ${plan.tot / 2}h: not enough open hours in their positions.`);
+  };
+
+  // 0) Fixed rules, always applied first
+  const rulesOrder = ['headwaiter-open', 'headwaiter-split', 'closer'];
+  [...(cfg().fixedRules || [])].sort((a, b) => rulesOrder.indexOf(a.type) - rulesOrder.indexOf(b.type)).forEach(r => {
+    const sp = spById(r.sp); if (!sp || !isOpenDay(r.sp)) return;
+    const h = spHours(sp, date, day);
+    if (r.type === 'headwaiter-open') {
+      const firstOpen = toSlot(h.periods.map(p => p.open).sort((a, b) => toSlot(a) - toSlot(b))[0]);
+      const start = Math.max(0, firstOpen - Math.round(r.beforeMin / 30));
+      if (firstOpen - Math.round(r.beforeMin / 30) < 0) notes.push(`${sp.name} headwaiter would start before 05:00; started at 05:00 instead.`);
+      const heads = free().filter(x => x.headAt === r.sp); if (!heads.length) return;
+      const e = heads.find(x => restOk(x, start)) || heads[0];
+      if (!restOk(e, start)) notes.push(`${e.name} opens ${sp.name} at ${slotTime(start)} without ${R().minRestH}h rest after yesterday.`);
+      const len = Math.min(r.hours * 2, targetSlots(e, day));
+      place(e, r.sp, start, start + len, 'headwaiter');
+    } else if (r.type === 'headwaiter-split') {
+      if (h.periods.length < 2) return;
+      const heads = free().filter(x => x.headAt === r.sp && !(day.signing || []).includes(x.id)); if (!heads.length) return;
+      const first = toSlot(r.parts[0][0]);
+      const e = heads.find(x => restOk(x, first)) || heads[0];
+      if (!restOk(e, first)) notes.push(`${e.name} starts at ${slotTime(first)} without ${R().minRestH}h rest after yesterday.`);
+      r.parts.forEach(([a, b]) => { shifts.push({id: uid(), emp: e.id, sp: r.sp, start: toSlot(a), end: endSlot(b), fixed: 'split'}); for (let k = toSlot(a); k < endSlot(b); k++) cover[r.sp][k]++; });
+      used.add(e.id);
+    } else if (r.type === 'closer') {
+      const end = endSlot(r.end), start = end - r.hours * 2;
+      // allowed there at closing time, rested, full day (not signing on/off); other places' headwaiters stay home
+      const cands = free().filter(e => empMask(e, r.sp)[end - 1] && restOk(e, start) && targetSlots(e, day) >= r.hours * 2 && !(homeOpen(e) && e.headAt !== r.sp));
+      if (!cands.length) { notes.push(`Nobody available to close ${sp.name} (${slotTime(start)}–${r.end}). Tick more people in, or give someone the ${sp.name} night position.`); return; }
+      cands.sort((a, b) => ((b.headAt === r.sp) - (a.headAt === r.sp)) || (!!a.headAt - !!b.headAt) || (a.allowed.length - b.allowed.length));
+      place(cands[0], r.sp, start, end, 'closing');
+    }
+  });
+
+  // 1) Other headwaiters: their own place first (topped up elsewhere if it isn't open long enough)
+  free().filter(e => homeOpen(e)).forEach(e => { const p = bestPlan(e, 3); if (p) assignPlan(e, p); });
+
+  // 2) Everyone else, biggest gaps first
+  while (true) {
+    let pick = null;
+    for (const e of free()) {
+      const p = bestPlan(e, 0);
+      if (!p) { used.add(e.id); notes.push(`${e.name} can't be placed: none of their positions are open (or not enough rest).`); continue; }
+      const key = [p.tot, p.score, -e.allowed.length];
+      if (!pick || key[0] > pick.key[0] || (key[0] === pick.key[0] && (key[1] > pick.key[1] || (key[1] === pick.key[1] && key[2] > pick.key[2])))) pick = {e, p, key};
+    }
+    if (!pick) break;
+    assignPlan(pick.e, pick.p);
+  }
+  day.genNotes = notes;
+  return shifts;
+}
+
+function bookingSummary(sp, day) {
+  const bk = day.bookings[sp.id] || {};
+  return (sp.bookingTypes || []).filter(t => +bk[t.key] > 0).map(t => `${t.label.toLowerCase()} ${bk[t.key]}`).join(', ');
+}
+function scheduleText(date, day) {
+  const lines = ['Work schedule – ' + fmtDate(date)];
+  cfg().salesPoints.forEach(sp => {
+    const sh = day.shifts.filter(s => s.sp === sp.id).sort((a, b) => a.start - b.start);
+    if (!sh.length) return;
+    lines.push('', sp.name.toUpperCase());
+    const bk = bookingSummary(sp, day); if (bk) lines.push('  Bookings: ' + bk);
+    sh.forEach(s => { const e = empById(s.emp);
+      const br = (day.breaks || []).filter(b => b.emp === s.emp && b.slot >= s.start && b.slot < s.end).map(b => `${b.meal.toLowerCase()} ${slotTime(b.slot)}`).join(', ');
+      lines.push(`  ${slotTime(s.start)}–${slotTime(s.end)}  ${e ? e.name : '?'}${e && e.headAt === sp.id ? ' (headwaiter)' : ''}${br ? '  [' + br + ']' : ''}`); });
+  });
+  return lines.join('\n');
+}
+
+/* ============ Rendering ============ */
+let pointerDown = false, renderPending = false;
+document.addEventListener('pointerdown', () => { pointerDown = true; }, true);
+const pointerRelease = () => setTimeout(() => { pointerDown = false; if (renderPending) { renderPending = false; render(); } }, 0);
+document.addEventListener('pointerup', pointerRelease, true);
+document.addEventListener('pointercancel', pointerRelease, true);
+function scheduleRender() { if (pointerDown) renderPending = true; else render(); }
+
+// A selector that finds "the same" field again after a redraw.
+function focusKey(a) {
+  if (!a || a === document.body || !a.matches || !a.matches('input,select,textarea')) return null;
+  if (a.id) return '#' + CSS.escape(a.id);
+  if (!a.dataset.ch) return null;
+  return ['ch', 'id', 'f', 'i', 'd', 'sp', 'k', 'p', 'scope'].filter(k => a.dataset[k] !== undefined)
+    .map(k => `[data-${k}="${CSS.escape(a.dataset[k])}"]`).join('');
+}
+function render() {
+  // keep the field the person is in (and any half-typed text in a plain box) across the redraw
+  const a = document.activeElement, key = focusKey(a);
+  const typed = key && a.id && a.type !== 'checkbox' ? a.value : null;
+  const sel = key && /^(text|search|email|password)$/.test(a.type) ? [a.selectionStart, a.selectionEnd] : null;
+  renderInner();
+  if (!key) return;
+  const el = document.querySelector(key); if (!el) return;
+  if (typed !== null) el.value = typed;
+  el.focus();
+  if (sel) try { el.setSelectionRange(sel[0], sel[1]); } catch (e) {}
+}
+function renderInner() {
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b.dataset.v === view));
+  ['day','setup','sync'].forEach(v => $('#view-' + v).hidden = v !== view);
+  if (view === 'day') renderDay(); else if (view === 'setup') renderSetup(); else renderSync();
+  renderBadge();
+}
+
+function renderDay() {
+  const {salesPoints: sps, employees: emps} = cfg();
+  const day = getDay(curDate);
+  const need = computeNeed(curDate, day), cover = computeCover(day);
+  const working = new Set(day.working);
+
+  const who = `<div class="card"><h3>Who's in <span class="muted">${day.working.length}</span>
+    <span class="acts"><button data-act="all">All</button><button data-act="none">None</button><button data-act="copyprev" title="Copy from the same weekday last week">Last week</button></span></h3>
+    <div class="chips">${emps.map(e => `<button class="chip ${working.has(e.id) ? 'on' : ''}" data-act="toggle" data-id="${e.id}">${esc(e.name)}${e.headAt && spById(e.headAt) ? ` <small>★ ${esc(spById(e.headAt).name)}</small>` : ''}</button>`).join('') || '<span class="muted">Add employees in Setup.</span>'}</div>
+    ${day.working.length ? `<div class="signrow"><span class="muted">Signing on/off today (${R().signHours}h):</span>
+      ${emps.filter(e => working.has(e.id)).map(e => `<button class="chip small ${day.signing.includes(e.id) ? 'on' : ''}" data-act="sign" data-id="${e.id}">${esc(e.name)}</button>`).join('')}</div>` : ''}</div>`;
+
+  const hours = `<div class="card"><h3>Opening hours today</h3>${sps.filter(sp => !sp.hoursFrom).map(sp => {
+    const h = spHours(sp, curDate, day), ov = !!day.hours[sp.id];
+    return `<div class="hblock"><div class="hrow"><span class="dot" style="background:${sp.color}"></span><span class="hname">${esc(sp.name)}</span>
+      ${ov ? `<span class="mini">changed today</span><button class="link" data-act="hours-reset" data-id="${sp.id}" title="Back to standard hours">reset</button>` : ''}</div>
+      ${periodsEditor(h, `data-scope="day" data-id="${sp.id}"`)}</div>`;
+  }).join('')}</div>`;
+
+  const bookSps = sps.filter(sp => (sp.bookingTypes || []).length);
+  const res = `<div class="card"><h3>Reservations</h3>${bookSps.map(sp => {
+    const bk = day.bookings[sp.id] || {}, h = spHours(sp, curDate, day);
+    const total = sp.bookingTypes.reduce((a, t) => a + (+bk[t.key] || 0), 0);
+    return `<div class="grp"><div class="grp-h"><span class="dot" style="background:${sp.color}"></span>${esc(sp.name)}
+        <span class="muted"><span id="bk-total-${sp.id}">${total ? total + ' booked' : ''}</span>${h.periods.length ? '' : ' · closed today'}</span></div>
+      <div class="bookrow">${sp.bookingTypes.map(t => `<label class="book"><span>${esc(t.label)}</span>
+        <input type="number" min="0" inputmode="numeric" placeholder="0" value="${+bk[t.key] || ''}" data-ch="book" data-sp="${sp.id}" data-k="${t.key}"></label>`).join('')}</div></div>`;
+  }).join('') || '<div class="muted">No booking types set up. Add them under each sales point in Setup.</div>'}</div>`;
+
+  $('#view-day').innerHTML = `
+    <div class="datebar">
+      <button data-act="prev-day" title="Previous day">‹</button>
+      <input type="date" data-ch="date" value="${curDate}">
+      <button data-act="next-day" title="Next day">›</button>
+      <button data-act="today">Today</button>
+      <span class="wd">${WDL[wdIndex(curDate)]}</span>
+    </div>
+    <div class="day-grid">
+      <div class="day-left">${who}${res}${hours}</div>
+      <div>
+        <div class="toolbar">
+          <button class="primary big" data-act="gen">Generate schedule</button>
+          <button data-act="add-shift">+ Add shift</button>
+          <span class="spacer"></span>
+          <button data-act="copy">Copy as text</button>
+          <button data-act="print">Print</button>
+        </div>
+        <div id="dayResults">${dayResultsHTML(day)}</div>
+      </div>
+    </div>`;
+}
+
+// Alerts + timeline: redrawn on their own while bookings are typed, so the buttons never move.
+function dayResultsHTML(day) {
+  const {salesPoints: sps, employees: emps} = cfg();
+  const need = computeNeed(curDate, day), cover = computeCover(day);
+  const working = new Set(day.working);
+  // Alerts
+  const alerts = [];
+  sps.forEach(sp => {
+    const open = need[sp.id].some(x => x > 0);
+    const heads = emps.filter(e => e.headAt === sp.id);
+    const bk = day.bookings[sp.id] || {}, h = spHours(sp, curDate, day);
+    (sp.bookingTypes || []).forEach(t => {
+      if (!(+bk[t.key] > 0)) return;
+      let any = false; for (let s = toSlot(t.from); s < endSlot(t.to); s++) if (isOpenAt(h, s)) any = true;
+      if (!any) alerts.push(['warn', `<b>${esc(sp.name)}</b>: ${bk[t.key]} ${esc(t.label.toLowerCase())} booked, but it's closed ${t.from}–${t.to} today.`]);
+    });
+    if (open && heads.length && !heads.some(e => working.has(e.id))) alerts.push(['warn', `No headwaiter of <b>${esc(sp.name)}</b> is in today.`]);
+    if (day.shifts.length) gapRanges(need[sp.id], cover[sp.id]).forEach(g =>
+      alerts.push(['bad', `<b>${esc(sp.name)}</b> is short ${g.max} ${g.max > 1 ? 'people' : 'person'} ${slotTime(g.s)}–${slotTime(g.e)}`]));
+  });
+  if (day.shifts.length) {
+    const idle = emps.filter(e => working.has(e.id) && !day.shifts.some(s => s.emp === e.id));
+    if (idle.length) alerts.push(['info', `In today but not on the schedule: ${idle.map(e => esc(e.name)).join(', ')}`]);
+    const notIn = [...new Set(day.shifts.filter(s => !working.has(s.emp)).map(s => s.emp))].map(empById).filter(Boolean);
+    if (notIn.length) alerts.push(['warn', `On the schedule but not ticked in: ${notIn.map(e => esc(e.name)).join(', ')}`]);
+    (day.genNotes || []).forEach(t => alerts.push(['warn', esc(t)]));
+    const outside = day.shifts.filter(s => { const e = empById(s.emp); if (!e || !spById(s.sp) || s.fixed) return false;
+      const m = empMask(e, s.sp); for (let k = s.start; k < s.end; k++) if (!m[k]) return true; return false; });
+    if (outside.length) alerts.push(['warn', `Outside their work positions: ${outside.map(s => `${esc(empById(s.emp).name)} at ${esc(spById(s.sp).name)} ${slotTime(s.start)}–${slotTime(s.end)}`).join(', ')}`]);
+    checkRules(curDate, day).forEach(t => alerts.push(['warn', esc(t)]));
+  } else {
+    alerts.push(['info', day.working.length ? 'Enter the bookings, then press <b>Generate schedule</b>.' : 'Tick who\'s in today, enter the bookings, then press <b>Generate schedule</b>.']);
+  }
+
+  return `<div class="alerts">${alerts.map(([k, t]) => `<div class="alert ${k}">${t}</div>`).join('')}</div>
+        ${timelineHTML(day, need, cover)}`;
+}
+
+function timelineHTML(day, need, cover) {
+  const sps = cfg().salesPoints;
+  let r0 = SLOTS, r1 = 0;
+  sps.forEach(sp => need[sp.id].forEach((n, i) => { if (n > 0) { r0 = Math.min(r0, i); r1 = Math.max(r1, i + 1); } }));
+  day.shifts.forEach(s => { r0 = Math.min(r0, s.start); r1 = Math.max(r1, s.end); });
+  if (r1 <= r0) return `<div class="tl-wrap"><div class="empty">Every sales point is closed today.</div></div>`;
+  const cols = r1 - r0;
+  let h = `<div class="tl-wrap"><div class="tl" style="--cols:150px repeat(${cols},minmax(30px,1fr));min-width:${150 + cols * 30}px">`;
+  h += `<div class="tl-row tl-head"><div class="tl-lab"></div>`;
+  for (let i = r0; i < r1; i++) { const t = slotTime(i); h += `<div class="tl-time ${t.endsWith(':30') ? 'half' : ''}">${t.endsWith(':00') ? t.slice(0, 2) : ''}</div>`; }
+  h += `</div>`;
+  sps.forEach(sp => {
+    const n = need[sp.id], c = cover[sp.id];
+    const shifts = day.shifts.filter(s => s.sp === sp.id).sort((a, b) => a.start - b.start || a.end - b.end);
+    if (!n.some(x => x > 0) && !shifts.length) return;
+    const hr = spHours(sp, curDate, day);
+    h += `<div class="tl-sp"><span class="dot" style="background:${sp.color}"></span><b>${esc(sp.name)}</b>
+      <span class="muted">${hoursLabel(hr)}</span>
+      <button class="link" data-act="add-shift" data-sp="${sp.id}">+ shift</button></div>`;
+    const byEmp = new Map(); shifts.forEach(s => { if (!byEmp.has(s.emp)) byEmp.set(s.emp, []); byEmp.get(s.emp).push(s); });
+    byEmp.forEach((list, empId) => {
+      const e = empById(empId);
+      h += `<div class="tl-row"><div class="tl-lab" style="grid-row:1">${esc(e ? e.name : '(removed)')}${e && e.headAt === sp.id ? ' ★' : ''}</div>
+        ${(day.breaks || []).filter(b => b.emp === empId && b.sp === sp.id).map(b => `<div class="tl-brk" style="grid-row:1;grid-column:${b.slot - r0 + 2}/${b.slot + b.len - r0 + 2}" title="${esc(b.meal)} break ${slotTime(b.slot)}–${slotTime(b.slot + b.len)}"></div>`).join('')}
+        ${list.map(s => `<div class="tl-bar" style="grid-row:1;grid-column:${s.start - r0 + 2}/${s.end - r0 + 2};background:${sp.color}" data-act="edit-shift" data-id="${s.id}" title="${s.fixed ? 'Fixed rule shift. ' : ''}Click to edit">${slotTime(s.start)}–${slotTime(s.end)} <span>· ${(s.end - s.start) / 2}h${s.fixed ? ' · fixed' : ''}</span></div>`).join('')}</div>`;
+    });
+    h += `<div class="tl-row tl-cov"><div class="tl-lab muted" style="font-size:11px">staff on / needed</div>`;
+    for (let i = r0; i < r1; i++) {
+      const nn = n[i], cc = c[i];
+      const cls = cc < nn ? 'short' : (nn === 0 && cc === 0 ? '' : (cc > nn ? 'over' : 'ok'));
+      h += `<div class="cov ${cls}">${nn || cc ? cc + '/' + nn : ''}</div>`;
+    }
+    h += `</div>`;
+  });
+  return h + `</div></div>`;
+}
+
+function periodsEditor(h, attrs) {
+  return `<div class="periods">${h.periods.map((p, i) => `<div class="per">
+      <select data-ch="per" data-i="${i}" data-f="open" ${attrs}>${timeOpts(p.open)}</select>–<select data-ch="per" data-i="${i}" data-f="close" ${attrs}>${endOpts(p.close)}</select>
+      <button class="x" data-act="per-del" data-i="${i}" ${attrs} title="Remove this period">✕</button></div>`).join('') || '<span class="muted per">closed</span>'}
+    <button class="link" data-act="per-add" ${attrs}>+ period</button></div>`;
+}
+// Which hours an editor control belongs to: a sales point's standard week, or one day's override.
+function hoursTarget(el) {
+  const sp = spById(el.dataset.id);
+  if (el.dataset.scope === 'day') {
+    const day = getDay(curDate), h = spHours(sp, curDate, day);
+    return {h, commit: () => { day.hours[sp.id] = h; saveDay(curDate); scheduleRender(); }};
+  }
+  const d = el.dataset.d, h = normHours(sp.hours[d]);
+  return {h, commit: () => { sp.hours[d] = h; saveConfig(); scheduleRender(); }};
+}
+
+function renderSetup() {
+  const {salesPoints: sps, employees: emps, rules} = cfg();
+  const spCards = sps.map(sp => `<div class="card">
+    <div class="sp-top">
+      <input type="color" value="${sp.color}" data-ch="sp" data-id="${sp.id}" data-f="color" title="Colour">
+      <input type="text" value="${esc(sp.name)}" data-ch="sp" data-id="${sp.id}" data-f="name">
+      <select data-ch="sp" data-id="${sp.id}" data-f="type"><option value="restaurant" ${sp.type === 'restaurant' ? 'selected' : ''}>Restaurant</option><option value="bar" ${sp.type === 'bar' ? 'selected' : ''}>Bar</option><option value="role" ${sp.type === 'role' ? 'selected' : ''}>Position</option></select>
+      <button class="x" data-act="sp-del" data-id="${sp.id}" title="Delete sales point">✕</button>
+    </div>
+    <div class="fields">
+      <label>Staff whenever open <input type="number" min="1" value="${sp.baseStaff}" data-ch="sp" data-id="${sp.id}" data-f="baseStaff"></label>
+      <label>Arrive before opening (min) <input type="number" min="0" step="30" value="${sp.prepMin}" data-ch="sp" data-id="${sp.id}" data-f="prepMin"></label>
+      <label>Stay after closing (min) <input type="number" min="0" step="30" value="${sp.closeMin}" data-ch="sp" data-id="${sp.id}" data-f="closeMin"></label>
+    </div>
+    ${sp.hoursFrom && spById(sp.hoursFrom) ? `<p class="help">Open whenever <b>${esc(spById(sp.hoursFrom).name)}</b> is open, using its opening hours.</p>` : `
+    <table style="margin-bottom:12px"><tr><th>Booking type</th><th>Guests come</th><th title="0 = doesn't change staffing">+1 staff per … guests</th><th></th></tr>
+    ${(sp.bookingTypes || []).map((t, i) => `<tr>
+      <td><input type="text" value="${esc(t.label)}" data-ch="bt" data-id="${sp.id}" data-i="${i}" data-f="label" style="width:110px"></td>
+      <td><span class="per"><select data-ch="bt" data-id="${sp.id}" data-i="${i}" data-f="from">${timeOpts(t.from)}</select>–<select data-ch="bt" data-id="${sp.id}" data-i="${i}" data-f="to">${endOpts(t.to)}</select></span></td>
+      <td><input type="number" min="0" value="${t.perStaff}" data-ch="bt" data-id="${sp.id}" data-i="${i}" data-f="perStaff" style="width:60px"></td>
+      <td><button class="x" data-act="bt-del" data-id="${sp.id}" data-i="${i}" title="Remove booking type">✕</button></td></tr>`).join('')}
+    <tr><td colspan="4"><button class="link" data-act="bt-add" data-id="${sp.id}">+ booking type</button></td></tr></table>
+    <table><tr><th>Day</th><th>Opening periods</th></tr>
+    ${WD.map((d, i) => `<tr><td style="vertical-align:top;padding-top:8px">${WDL[i].slice(0, 3)}</td>
+      <td>${periodsEditor(normHours(sp.hours[d]), `data-scope="sp" data-id="${sp.id}" data-d="${d}"`)}</td></tr>`).join('')}
+    </table>
+    <button class="link" data-act="sp-copyhours" data-id="${sp.id}">Copy Monday's hours to every day</button>`}
+  </div>`).join('');
+
+  const positions = cfg().positions;
+  const posOrder = [...new Set(positions.map(p => p.sp))].map(spById).filter(Boolean);
+  const canWork = e => `<div class="allowed">${posOrder.map(sp => {
+    const ps = positions.filter(p => p.sp === sp.id); if (!ps.length) return '';
+    const box = (p, text) => `<label><input type="checkbox" ${e.allowed.includes(p.key) ? 'checked' : ''} data-ch="emp-allowed" data-id="${e.id}" data-p="${p.key}">${esc(text)}</label>`;
+    return ps.length === 1 ? box(ps[0], ps[0].label)
+      : `<span class="pgrp"><b>${esc(sp.name)}</b>${ps.map(p => box(p, shortLabel(p, sp))).join('')}</span>`;
+  }).join('')}</div>`;
+  const posRows = positions.map((p, i) => `<tr>
+    <td><input type="text" value="${esc(p.label)}" data-ch="pos" data-i="${i}" data-f="label" style="width:190px"></td>
+    <td class="muted">${esc((spById(p.sp) || {}).name || '?')}</td>
+    <td><span class="per"><select data-ch="pos" data-i="${i}" data-f="from">${timeOpts(p.from)}</select>–<select data-ch="pos" data-i="${i}" data-f="to">${endOpts(p.to)}</select></span></td></tr>`).join('');
+
+  const empRows = emps.map(e => `<tr>
+    <td><input type="text" value="${esc(e.name)}" data-ch="emp" data-id="${e.id}" data-f="name" style="width:120px"></td>
+    <td><select data-ch="emp" data-id="${e.id}" data-f="headAt"><option value="">—</option>${sps.map(s => `<option value="${s.id}" ${e.headAt === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></td>
+    <td>${canWork(e)}</td>
+    <td><button class="x" data-act="emp-del" data-id="${e.id}" title="Delete employee">✕</button></td></tr>`).join('');
+
+  $('#view-setup').innerHTML = `
+    <div class="card"><h3>Employees <span class="muted">${emps.length}</span></h3>
+      <p class="help">★ Headwaiters are placed at their own sales point first. They're only moved elsewhere when their place is closed or already fully staffed.</p>
+      <div style="overflow-x:auto"><table><tr><th>Name</th><th>Headwaiter at</th><th>Can work at</th><th></th></tr>${empRows}</table></div>
+      <div class="addrow" style="margin-top:10px"><input id="newEmp" type="text" placeholder="New employee name"><button class="primary" data-act="emp-add">Add employee</button></div>
+    </div>
+    <div class="card"><h3>Work positions</h3>
+      <p class="help">The hours each position covers. Someone ticked only for "Laterna Magica morning" is only scheduled there inside those hours. 05:00–05:00 means the whole day.</p>
+      <div style="overflow-x:auto"><table><tr><th>Position</th><th>Sales point</th><th>Hours</th></tr>${posRows}</table></div>
+    </div>
+    <div class="card"><h3>Fixed shifts <span class="muted">always applied first when generating</span></h3>
+      <ul style="margin:0;padding-left:18px">${(cfg().fixedRules || []).map(r => `<li>${ruleText(r)}</li>`).join('')}</ul>
+    </div>
+    <div class="card"><h3>Working-time rules <span class="muted">for all employees</span></h3>
+      <div class="fields" style="max-width:640px">
+        <label>Standard day (hours) <input type="number" min="1" step="0.5" value="${rules.dayHours}" data-ch="rule" data-f="dayHours"></label>
+        <label>Signing on/off day (hours) <input type="number" min="0.5" step="0.5" value="${rules.signHours}" data-ch="rule" data-f="signHours"></label>
+        <label>Split must be longer than (hours) <input type="number" min="0" step="0.5" value="${rules.splitOverH}" data-ch="rule" data-f="splitOverH"></label>
+        <label>Minimum rest between days (hours) <input type="number" min="0" step="0.5" value="${rules.minRestH}" data-ch="rule" data-f="minRestH"></label>
+        <label>Shortest part of a split (hours) <input type="number" min="0.5" step="0.5" value="${rules.minShiftH}" data-ch="rule" data-f="minShiftH"></label>
+        <label>Meal break (minutes) <input type="number" min="30" step="30" value="${rules.mealBreakMin}" data-ch="rule" data-f="mealBreakMin"></label>
+      </div>
+      <table style="max-width:420px;margin-bottom:8px"><tr><th>Staff meal</th><th>Time</th></tr>
+      ${rules.meals.map((m, i) => `<tr><td>${esc(m.label)}</td><td><span class="per"><select data-ch="meal" data-i="${i}" data-f="from">${timeOpts(m.from)}</select>–<select data-ch="meal" data-i="${i}" data-f="to">${endOpts(m.to)}</select></span></td></tr>`).join('')}</table>
+      <p class="help" style="margin:0">Everyone works the standard day, as one block or split into at most 2 parts. Anyone working through a staff meal gets a break inside it; breaks count as working time. Staff needed in each half hour = "staff whenever open" + 1 for every full block of booked guests. The day runs from 05:00 to 05:00.</p>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:18px 0 10px">
+      <h3 style="margin:0">Sales points</h3>
+      <span class="muted" style="font-size:13px">Standard hours: M/F Norröna shoulder season (15.03–30.05 &amp; 05.09–22.11.2026). Closing times marked "?" on the sheet are set to ${LATE}.</span>
+      <button data-act="load-norrona" style="margin-left:auto">Reload Norröna shoulder hours</button>
+    </div>
+    <div class="setup-grid">${spCards}</div>
+    <div class="addrow" style="margin-top:4px;max-width:420px"><input id="newSp" type="text" placeholder="New sales point name"><button data-act="sp-add">Add sales point</button></div>`;
+}
+
+function renderSync() {
+  const c = fbCfg();
+  $('#view-sync').innerHTML = `
+    <div class="card" style="max-width:760px"><h3>Shared sync (Firebase)</h3>
+      ${!c ? `<p class="help">Right now everything is saved in this browser only. To share the schedule between devices and managers, paste the <code>firebaseConfig</code> from your Firebase project (Project settings → Your apps → Web app). You can use the same project as your table tracker. The scheduler keeps its data in its own <code>scheduler</code> collection.</p>
+        <textarea id="fbCfg" rows="9" style="width:100%" placeholder="const firebaseConfig = { apiKey: ..., authDomain: ..., projectId: ... };"></textarea>
+        <div class="toolbar" style="margin-top:8px"><button class="primary" data-act="fb-connect">Connect</button></div>`
+      : `<p>Project: <b>${esc(c.projectId || '?')}</b> — status: <b>${esc(FB.status)}</b>${FB.err ? ` <span class="muted">(${esc(FB.err)})</span>` : ''}</p>
+        ${FB.user ? `<p>Signed in as <b>${esc(FB.user.email)}</b> <button data-act="fb-logout">Sign out</button></p>`
+          : `<div class="addrow"><input id="fbEmail" type="email" placeholder="Email"><input id="fbPw" type="password" placeholder="Password"><button class="primary" data-act="fb-login">Sign in</button></div>`}
+        <button class="danger" data-act="fb-disconnect">Disconnect this browser</button>`}
+    </div>
+    <div class="card" style="max-width:760px"><h3>One-time Firebase setup</h3>
+      <p class="help">1. In the Firebase console, open Authentication → Sign-in method and enable <b>Email/Password</b>. Then go to Users and add an account for each manager.<br>
+      2. Open Firestore Database → Rules and add this block. It only covers the scheduler, so your table tracker isn't affected:</p>
+<pre class="code">rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /scheduler/{doc} {
+      allow read, write: if request.auth != null;
+    }
+    // ...keep your existing rules for other collections here
+  }
+}</pre>
+      <p class="help">Employee names and schedules are only readable after signing in, even though the website itself is public on GitHub Pages.</p>
+    </div>
+    <div class="card" style="max-width:760px"><h3>Backup</h3>
+      <div class="toolbar"><button data-act="export">Download backup (.json)</button><button data-act="import">Restore from backup</button></div>
+    </div>`;
+}
+
+function renderBadge() {
+  const b = $('#badge');
+  const map = {local: 'Local only', connecting: 'Connecting…', signin: 'Sign in to sync', online: 'Synced', error: 'Sync error'};
+  b.textContent = map[FB.status] || FB.status;
+  b.className = 'badge ' + FB.status;
+}
+
+/* ============ Shift dialog ============ */
+let dlgShift = null;
+function openShift(shift, spId) {
+  const {salesPoints: sps, employees: emps} = cfg();
+  const day = getDay(curDate);
+  dlgShift = shift;
+  const f = $('#dlgForm');
+  const s = shift || {emp: '', sp: spId || (sps[0] && sps[0].id), start: 22, end: 30};
+  const working = new Set(day.working);
+  const sorted = [...emps].sort((a, b) => (working.has(b.id) - working.has(a.id)) || a.name.localeCompare(b.name));
+  f.emp.innerHTML = sorted.map(e => `<option value="${e.id}" ${e.id === s.emp ? 'selected' : ''}>${esc(e.name)}${working.has(e.id) ? '' : ' (not ticked in)'}</option>`).join('');
+  f.sp.innerHTML = sps.map(x => `<option value="${x.id}" ${x.id === s.sp ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+  let so = '', eo = '';
+  for (let i = 0; i < SLOTS; i++) so += `<option value="${i}" ${i === s.start ? 'selected' : ''}>${slotTime(i)}</option>`;
+  for (let i = 1; i <= SLOTS; i++) eo += `<option value="${i}" ${i === s.end ? 'selected' : ''}>${slotTime(i)}</option>`;
+  f.start.innerHTML = so; f.end.innerHTML = eo;
+  $('#dlgTitle').textContent = shift ? 'Edit shift' : 'Add shift';
+  $('#dlgDel').hidden = !shift;
+  $('#dlg').showModal();
+}
+$('#dlgForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const f = e.target, day = getDay(curDate);
+  const start = +f.start.value, end = +f.end.value;
+  if (end <= start) { alert('The shift must end after it starts.'); return; }
+  if (!f.emp.value) { alert('Pick an employee.'); return; }
+  const data = {emp: f.emp.value, sp: f.sp.value, start, end};
+  if (dlgShift) Object.assign(dlgShift, data); else day.shifts.push({id: uid(), ...data});
+  $('#dlg').close(); placeBreaks(curDate, day); saveDay(curDate); render();
+});
+$('#dlgDel').onclick = () => { const day = getDay(curDate); day.shifts = day.shifts.filter(s => s !== dlgShift); $('#dlg').close(); placeBreaks(curDate, day); saveDay(curDate); render(); };
+$('#dlgCancel').onclick = () => $('#dlg').close();
+
+/* ============ Events ============ */
+function setDate(d) { curDate = d; subscribeDay(); render(); }
+
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const act = b.dataset.act, id = b.dataset.id;
+  const day = getDay(curDate), C = cfg();
+  switch (act) {
+    case 'view': view = b.dataset.v; render(); return;
+    case 'prev-day': setDate(addDays(curDate, -1)); return;
+    case 'next-day': setDate(addDays(curDate, 1)); return;
+    case 'today': setDate(todayStr()); return;
+    case 'sign': day.signing = day.signing.includes(id) ? day.signing.filter(x => x !== id) : [...day.signing, id]; break;
+    case 'toggle': day.working = day.working.includes(id) ? day.working.filter(x => x !== id) : [...day.working, id]; break;
+    case 'all': day.working = C.employees.map(x => x.id); break;
+    case 'none': day.working = []; break;
+    case 'copyprev': { const p = state.days[addDays(curDate, -7)]; if (!p || !p.working.length) { alert('Nobody was ticked in on the same weekday last week.'); return; } day.working = [...p.working]; break; }
+    case 'hours-reset': delete day.hours[id]; break;
+    case 'per-add': {
+      const t = hoursTarget(b), last = t.h.periods[t.h.periods.length - 1];
+      t.h.periods.push(last ? {open: last.close === '05:00' ? '18:00' : last.close, close: LATE} : {open: '12:00', close: '22:00'});
+      t.commit(); return;
+    }
+    case 'per-del': { const t = hoursTarget(b); t.h.periods.splice(+b.dataset.i, 1); t.commit(); return; }
+    case 'load-norrona':
+      if (!confirm('Replace the standard weekly hours of all five sales points with the Norröna shoulder-season hours?')) return;
+      applyNorrona(C); saveConfig(); render(); return;
+    case 'gen':
+      if (!day.working.length) { alert("Tick who's in today first."); return; }
+      if (day.shifts.length && !confirm('Replace the current schedule for this day?')) return;
+      try { day.shifts = generate(curDate, day); placeBreaks(curDate, day); }
+      catch (err) { console.error(err); alert('Sorry, the schedule could not be generated: ' + err.message + '\n\nPlease download a backup (Sync & backup) and send it to get this fixed.'); return; }
+      break;
+    case 'add-shift': openShift(null, b.dataset.sp); return;
+    case 'edit-shift': { const s = day.shifts.find(x => x.id === id); if (s) openShift(s); return; }
+    case 'copy': {
+      const t = scheduleText(curDate, day);
+      (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => { b.textContent = 'Copied ✓'; setTimeout(() => b.textContent = 'Copy as text', 1500); }, () => prompt('Copy the schedule:', t));
+      return;
+    }
+    case 'print':
+      $('#printArea').innerHTML = `<h2>${esc(fmtDate(curDate))}</h2><pre>${esc(scheduleText(curDate, day).split('\n').slice(1).join('\n'))}</pre>${timelineHTML(day, computeNeed(curDate, day), computeCover(day))}`;
+      window.print(); return;
+    // setup
+    case 'sp-add': {
+      const name = $('#newSp').value.trim(); if (!name) return;
+      const i = C.salesPoints.length;
+      const nid = uid();
+      C.salesPoints.push({id: nid, name, type: 'restaurant', color: COLORS[i % COLORS.length], hours: defWeek('11:30', '22:00'), baseStaff: 2, prepMin: 30, closeMin: 30, bookingTypes: []});
+      C.positions.push(POS(nid + '-all', nid, name));
+      saveConfig(); render(); return;
+    }
+    case 'sp-del': {
+      const sp = spById(id); if (!confirm(`Delete ${sp.name}? Its shifts and bookings will no longer count.`)) return;
+      C.salesPoints = C.salesPoints.filter(s => s.id !== id);
+      const gone = new Set(C.positions.filter(p => p.sp === id).map(p => p.key));
+      C.positions = C.positions.filter(p => p.sp !== id);
+      C.employees.forEach(e => { e.allowed = e.allowed.filter(x => !gone.has(x)); if (e.headAt === id) e.headAt = null; });
+      saveConfig(); render(); return;
+    }
+    case 'bt-add': { const sp = spById(id); sp.bookingTypes.push(BT(uid(), 'New type', '12:00', '14:00')); saveConfig(); render(); return; }
+    case 'bt-del': { const sp = spById(id), t = sp.bookingTypes[+b.dataset.i]; if (!confirm(`Remove booking type "${t.label}"?`)) return; sp.bookingTypes.splice(+b.dataset.i, 1); saveConfig(); render(); return; }
+    case 'sp-copyhours': { const sp = spById(id); WD.forEach(d => sp.hours[d] = {...sp.hours.mon}); saveConfig(); render(); return; }
+    case 'emp-add': {
+      const name = $('#newEmp').value.trim(); if (!name) return;
+      C.employees.push({id: uid(), name, headAt: null, allowed: C.positions.map(p => p.key)});
+      saveConfig(); render(); $('#newEmp').focus(); return;
+    }
+    case 'emp-del': { const em = empById(id); if (!confirm(`Delete ${em.name}?`)) return; C.employees = C.employees.filter(x => x.id !== id); saveConfig(); render(); return; }
+    // sync
+    case 'fb-connect': {
+      const txt = $('#fbCfg').value; const a = txt.indexOf('{'), z = txt.lastIndexOf('}');
+      let c; try { c = Function('"use strict";return (' + txt.slice(a, z + 1) + ')')(); } catch (err) { alert('That doesn\'t look like a firebaseConfig object.'); return; }
+      if (!c || !c.apiKey || !c.projectId) { alert('The config needs at least apiKey and projectId.'); return; }
+      localStorage.setItem(LSFB, JSON.stringify(c)); fbStart(); render(); return;
+    }
+    case 'fb-disconnect': if (confirm('Stop syncing in this browser? Data already saved here stays.')) { localStorage.removeItem(LSFB); location.reload(); } return;
+    case 'fb-login': FB.auth.signInWithEmailAndPassword($('#fbEmail').value.trim(), $('#fbPw').value).catch(err => alert(err.message)); return;
+    case 'fb-logout': FB.auth.signOut(); return;
+    case 'export': {
+      const blob = new Blob([JSON.stringify(state, null, 2)], {type: 'application/json'});
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'staff-scheduler-backup-' + todayStr() + '.json'; a.click(); return;
+    }
+    case 'import': $('#importFile').click(); return;
+    default: return;
+  }
+  saveDay(curDate); render();
+});
+
+document.addEventListener('change', e => {
+  const el = e.target, ch = el.dataset.ch; if (!ch) return;
+  const C = cfg(), id = el.dataset.id, f = el.dataset.f;
+  if (ch === 'date') { if (el.value) setDate(el.value); return; }
+  if (ch === 'book') return; // handled on 'input' below, without redrawing the page
+  if (ch === 'per') { const t = hoursTarget(el); t.h.periods[+el.dataset.i][f] = el.value; t.commit(); return; }
+  if (ch === 'bt') {
+    const t = spById(id).bookingTypes[+el.dataset.i];
+    t[f] = f === 'perStaff' ? Math.max(0, parseInt(el.value, 10) || 0) : (f === 'label' ? (el.value.trim() || t.label) : el.value);
+  }
+  else if (ch === 'rule') { C.rules[f] = Math.max(f === 'splitOverH' || f === 'minRestH' ? 0 : 0.5, parseFloat(el.value) || 0); }
+  else if (ch === 'meal') { C.rules.meals[+el.dataset.i][f] = el.value; }
+  else if (ch === 'sp') { const sp = spById(id); sp[f] = ['name', 'type', 'color'].includes(f) ? el.value : Math.max(0, parseFloat(el.value) || 0); }
+  else if (ch === 'emp') { const em = empById(id); em[f] = f === 'headAt' ? (el.value || null) : el.value; if (f === 'headAt' && em.headAt && !empMask({...em, headAt: null}, em.headAt).some(Boolean)) em.allowed.push(...C.positions.filter(p => p.sp === em.headAt).map(p => p.key)); }
+  else if (ch === 'emp-allowed') { const em = empById(id), k = el.dataset.p; em.allowed = el.checked ? [...new Set([...em.allowed, k])] : em.allowed.filter(x => x !== k); }
+  else if (ch === 'pos') { const ps = C.positions[+el.dataset.i]; ps[f] = f === 'label' ? (el.value.trim() || ps.label) : el.value; }
+  else return;
+  saveConfig(); scheduleRender();
+});
+
+document.addEventListener('input', e => {
+  const el = e.target; if (el.dataset.ch !== 'book') return;
+  const day = getDay(curDate), sp = spById(el.dataset.sp), n = Math.max(0, parseInt(el.value, 10) || 0);
+  day.bookings[sp.id] = {...(day.bookings[sp.id] || {}), [el.dataset.k]: n};
+  saveDay(curDate);
+  const bk = day.bookings[sp.id], total = sp.bookingTypes.reduce((a, t) => a + (+bk[t.key] || 0), 0);
+  const tEl = document.getElementById('bk-total-' + sp.id); if (tEl) tEl.textContent = total ? total + ' booked' : '';
+  const r = $('#dayResults'); if (r) r.innerHTML = dayResultsHTML(day);
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  if (e.target.dataset.ch === 'book') {
+    e.preventDefault();
+    const boxes = [...document.querySelectorAll('[data-ch="book"]')], i = boxes.indexOf(e.target);
+    (boxes[i + 1] || e.target).focus(); if (!boxes[i + 1]) e.target.blur();
+    return;
+  }
+  const map = {newEmp: 'emp-add', newSp: 'sp-add', fbPw: 'fb-login'};
+  const act = map[e.target.id]; if (act) { e.preventDefault(); document.querySelector(`[data-act="${act}"]`).click(); }
+});
+
+$('#importFile').addEventListener('change', async e => {
+  const file = e.target.files[0]; if (!file) return;
+  try {
+    const s = JSON.parse(await file.text());
+    if (!s.config || !s.days) throw new Error();
+    if (!confirm('Replace all current data with this backup?')) return;
+    state = s; saveConfig(); Object.keys(state.days).forEach(saveDay); render();
+  } catch (err) { alert('That file is not a scheduler backup.'); }
+  e.target.value = '';
+});
+
+/* ============ Firebase sync (optional) ============ */
+const FB = {status: 'local', err: '', auth: null, db: null, user: null, unsubCfg: null, unsubDay: null};
+let cfgTimer = null, pendingCfg = false; const dayTimers = {}, pendingDay = {};
+function fbCfg() { try { return JSON.parse(localStorage.getItem(LSFB)); } catch (e) { return null; } }
+const online = () => FB.status === 'online' && FB.db && FB.user;
+function fbError(err) { FB.status = 'error'; FB.err = err && err.message || String(err); renderBadge(); if (view === 'sync') renderSync(); }
+function loadScript(src) { return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Could not load ' + src)); document.head.appendChild(s); }); }
+
+async function fbStart() {
+  const c = fbCfg(); if (!c) return;
+  FB.status = 'connecting'; renderBadge();
+  try {
+    const v = '10.12.2', base = `https://www.gstatic.com/firebasejs/${v}/`;
+    if (!window.firebase) await loadScript(base + 'firebase-app-compat.js');
+    await loadScript(base + 'firebase-auth-compat.js');
+    await loadScript(base + 'firebase-firestore-compat.js');
+    if (!firebase.apps.length) firebase.initializeApp(c);
+    FB.db = firebase.firestore(); FB.auth = firebase.auth();
+    FB.auth.onAuthStateChanged(u => {
+      FB.user = u; FB.err = '';
+      if (u) { FB.status = 'online'; subscribe(); } else { FB.status = 'signin'; unsubscribe(); }
+      render();
+    });
+  } catch (err) { fbError(err); }
+}
+function unsubscribe() { if (FB.unsubCfg) FB.unsubCfg(); if (FB.unsubDay) FB.unsubDay(); FB.unsubCfg = FB.unsubDay = null; }
+function subscribe() {
+  unsubscribe();
+  FB.unsubCfg = FB.db.collection('scheduler').doc('config').onSnapshot(snap => {
+    if (snap.metadata.hasPendingWrites || pendingCfg) return;
+    if (snap.exists && snap.data().config) { state.config = snap.data().config; if (ensureConfig(state.config)) saveConfig(); else saveLocal(); render(); }
+    else saveConfig(); // first device to connect uploads its setup
+  }, fbError);
+  subscribeDay();
+}
+function subscribeDay() {
+  if (FB.unsubDay) FB.unsubDay(); FB.unsubDay = null;
+  if (!online()) return;
+  const date = curDate;
+  FB.unsubDay = FB.db.collection('scheduler').doc('day-' + date).onSnapshot(snap => {
+    if (snap.metadata.hasPendingWrites || pendingDay[date]) return;
+    if (snap.exists && snap.data().day) { state.days[date] = snap.data().day; saveLocal(); if (date === curDate) render(); }
+    else if (state.days[date] && (state.days[date].working.length || state.days[date].shifts.length || Object.keys(state.days[date].bookings || {}).length)) saveDay(date);
+  }, fbError);
+}
+function saveConfig() {
+  saveLocal(); if (!online()) return;
+  pendingCfg = true; clearTimeout(cfgTimer);
+  cfgTimer = setTimeout(() => {
+    FB.db.collection('scheduler').doc('config').set({config: clone(state.config), updated: Date.now()})
+      .catch(fbError).finally(() => pendingCfg = false);
+  }, 500);
+}
+function saveDay(date) {
+  saveLocal(); if (!online() || !state.days[date]) return;
+  pendingDay[date] = true; clearTimeout(dayTimers[date]);
+  dayTimers[date] = setTimeout(() => {
+    FB.db.collection('scheduler').doc('day-' + date).set({day: clone(state.days[date]), updated: Date.now()})
+      .catch(fbError).finally(() => pendingDay[date] = false);
+  }, 400);
+}
+
+render();
+fbStart();
+</script>
+</body>
+</html>
