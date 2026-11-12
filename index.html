@@ -80,6 +80,7 @@ main{padding:16px;max-width:1500px;margin:0 auto}
 .tl-sp:first-of-type{border-top:none}
 .tl-bar{height:24px;border-radius:6px;background:var(--c);color:#fff;font-size:12px;padding:3px 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
 .tl-bar b{font-weight:700}
+.tl-bar[data-ink="#1a1a1a"]{color:#1a1a1a}
 .tl-lab{display:flex;align-items:center;gap:6px}
 .tl-lab .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tl-lab .hrs{margin-left:auto;font-size:11px;color:var(--muted);padding-right:4px}
@@ -121,6 +122,37 @@ dialog label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var
 dialog .row{display:flex;gap:10px}
 dialog .row label{flex:1}
 .dlg-actions{display:flex;gap:8px;margin-top:6px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:none;border-radius:0;background:var(--panel)}
+.seg button.on{background:var(--accent);color:var(--accent-ink)}
+.gwrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px}
+.sgrid{border-collapse:collapse;table-layout:fixed;width:max-content;font-size:12px;color:#1a1a1a}
+.sgrid col.c-name{width:120px}.sgrid col.c-slot{width:20px}.sgrid col.c-num{width:66px}
+.sgrid td,.sgrid th{border:1px solid #9a9a9a;padding:0;height:22px;background:#fff}
+.sgrid td.hr,.sgrid th.hr{border-left-color:#555}
+.sgrid thead th{background:#a6a6a6;color:#1a1a1a;font-weight:700}
+.sgrid thead th.slot{height:92px;vertical-align:bottom}
+.sgrid thead th.slot span{writing-mode:vertical-rl;transform:rotate(180deg);display:inline-block;font-size:10.5px;padding:4px 0;white-space:nowrap}
+.sgrid thead th.num{font-size:12px;line-height:1.1}
+.sgrid thead th.corner{background:#d9d9d9}
+.sgrid th.name{text-align:left;font-weight:400;color:#1a1a1a;padding:0 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:sticky;left:0;z-index:1}
+.sgrid .star{color:#c55a11}.sgrid .tag{font-size:10px;background:#ffe699;border-radius:3px;padding:0 3px}
+.sgrid td[data-act]{cursor:pointer}
+.sgrid td[data-act]:hover{outline:2px solid #1a1a1a;outline-offset:-2px}
+.sgrid td.num{text-align:center;font-weight:700}
+.sgrid td.num.ok{background:#00B050;color:#fff}
+.sgrid td.num.off{background:#FFFF00}
+.sgrid td.num.rest{background:#fff}
+.sgrid.cov td{font-size:10px;text-align:center;color:#555}
+.sgrid.cov td.short{background:#fde8e8;color:#c81e1e;font-weight:700}
+.sgrid.cov td.ok{background:#e9f7ef}
+.sgrid.cov td.over{background:#eef2ff}
+.sgrid .dot{display:inline-block;width:9px;height:9px;border-radius:2px;vertical-align:-1px}
+.glegend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:10px 2px 2px;font-size:12px;color:var(--ink)}
+.glegend span{display:flex;align-items:center;gap:6px;font-weight:600}
+.glegend i{display:inline-block;width:42px;height:14px;border:1px solid #9a9a9a}
+.gcov{margin-top:10px}.gcov summary{cursor:pointer;font-size:13px;color:var(--muted)}
+.gcov .sgrid{margin-top:6px}
 #printArea{display:none}
 @media print{
   @page{size:landscape;margin:10mm}
@@ -128,6 +160,13 @@ dialog .row label{flex:1}
   body>*:not(#printArea){display:none!important}
   #printArea{display:block}
   #printArea pre{font-size:13px}
+  #printArea .gwrap{border:none;padding:0;overflow:visible}
+  #printArea .sgrid{width:100%}
+  #printArea .sgrid col.c-name{width:9%}#printArea .sgrid col.c-slot{width:1.7%}#printArea .sgrid col.c-num{width:4.6%}
+  #printArea .sgrid td.num{font-size:11px}
+  #printArea .sgrid td,#printArea .sgrid th{height:18px}
+  #printArea .sgrid thead th.slot{height:70px}#printArea .sgrid thead th.slot span{font-size:8px}
+  .sgrid td,.sgrid th,.glegend i{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .tl-wrap{border:none;overflow:visible}
   .tl-bar{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .cov{-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -177,7 +216,16 @@ const DAY0 = 5 * 60;       // the scheduling day runs 05:00 -> 05:00 next mornin
 const WD = ['mon','tue','wed','thu','fri','sat','sun'];
 const WDL = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 const LS = 'staffsched.state.v1', LSFB = 'staffsched.firebase.v1';
-const COLORS = ['#2563eb','#7c3aed','#059669','#d97706','#dc2626','#0891b2','#db2777','#4b5563'];
+const COLORS = ['#9DC3E6','#00B050','#7030A0','#FFFF00','#0070C0','#00B0F0','#C55A11','#808080'];
+// Colours from the paper schedule
+const SHEET_COLORS = {laterna: '#9DC3E6', undirhusid: '#00B050', munkastova: '#7030A0', noatun: '#FFFF00', skansagardur: '#0070C0', placeur: '#00B0F0'};
+const BREAK_COLOR = '#FF66CC';
+// Dark or white text, whichever reads better on a colour
+function inkOn(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if (!m) return '#fff';
+  const n = parseInt(m[1], 16), r = n >> 16 & 255, g = n >> 8 & 255, b = n & 255;
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6 ? '#1a1a1a' : '#fff';
+}
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -311,6 +359,7 @@ function ensureConfig(c) {
     if (JSON.stringify(sp.hours[d]) !== before) changed = true;
   }));
   if (c.hoursPreset !== NORRONA_PRESET) { applyNorrona(c); changed = true; }
+  if (c.colorPreset !== 'sheet1') { c.salesPoints.forEach(sp => { if (SHEET_COLORS[sp.id]) sp.color = SHEET_COLORS[sp.id]; }); c.colorPreset = 'sheet1'; changed = true; }
   return changed;
 }
 
@@ -350,6 +399,8 @@ let state = {config: defaultConfig(), days: {}};
 try { const s = JSON.parse(localStorage.getItem(LS)); if (s && s.config) state = s; } catch (e) {}
 if (ensureConfig(state.config)) try { localStorage.setItem(LS, JSON.stringify(state)); } catch (e) {}
 let curDate = todayStr();
+const ui = {dview: 'grid'};
+try { ui.dview = localStorage.getItem('staffsched.dview') || 'grid'; } catch (e) {}
 let view = 'day';
 
 const cfg = () => state.config;
@@ -721,6 +772,7 @@ function renderDay() {
           <button class="primary big" data-act="gen">Generate schedule</button>
           <button data-act="add-shift">+ Add shift</button>
           <span class="spacer"></span>
+          <span class="seg"><button data-act="dview" data-v="grid" class="${ui.dview === 'grid' ? 'on' : ''}">Grid</button><button data-act="dview" data-v="timeline" class="${ui.dview === 'timeline' ? 'on' : ''}">Timeline</button></span>
           <button data-act="copy">Copy as text</button>
           <button data-act="print">Print</button>
         </div>
@@ -764,7 +816,51 @@ function dayResultsHTML(day) {
   }
 
   return `<div class="alerts">${alerts.map(([k, t]) => `<div class="alert ${k}">${t}</div>`).join('')}</div>
-        ${timelineHTML(day, need, cover)}`;
+        ${ui.dview === 'timeline' ? timelineHTML(day, need, cover) : gridHTML(day, need, cover)}`;
+}
+
+// Spreadsheet-style schedule: one row per person, one column per half hour 05:00–05:00.
+function gridHTML(day, need, cover, forPrint) {
+  const sps = cfg().salesPoints, emps = cfg().employees, working = new Set(day.working);
+  const onSchedule = new Set(day.shifts.map(s => s.emp));
+  const people = emps.filter(e => working.has(e.id) || onSchedule.has(e.id));
+  if (!people.length) return `<div class="tl-wrap"><div class="empty">Tick who's in today, then press Generate schedule.</div></div>`;
+  const brk = new Map(); (day.breaks || []).forEach(b => { for (let k = b.slot; k < b.slot + b.len; k++) brk.set(b.emp + ':' + k, b); });
+  let h = `<div class="gwrap"><table class="sgrid${forPrint ? ' print' : ''}"><colgroup><col class="c-name">${'<col class="c-slot">'.repeat(SLOTS)}<col class="c-num"><col class="c-num"></colgroup>
+    <thead><tr><th class="corner"></th>`;
+  for (let k = 0; k < SLOTS; k++) h += `<th class="slot${slotTime(k).endsWith(':00') ? ' hr' : ''}"><span>${slotTime(k)} - ${slotTime(k + 1) === '00:00' ? '24:00' : slotTime(k + 1)}</span></th>`;
+  h += `<th class="num">HOURS</th><th class="num rest">Rest hours</th></tr></thead><tbody>`;
+  people.forEach(e => {
+    const mine = day.shifts.filter(s => s.emp === e.id);
+    const total = workBlocks(day, e.id).reduce((a, b) => a + b.end - b.start, 0) / 2;
+    const want = targetSlots(e, day) / 2;
+    h += `<tr><th class="name">${esc(e.name)}${e.headAt ? ' <span class="star">★</span>' : ''}${(day.signing || []).includes(e.id) ? ' <span class="tag">on/off</span>' : ''}</th>`;
+    for (let k = 0; k < SLOTS; k++) {
+      const s = mine.find(x => k >= x.start && k < x.end), b = brk.get(e.id + ':' + k), sp = s && spById(s.sp);
+      const bg = b ? BREAK_COLOR : sp ? sp.color : '';
+      const tip = b ? `${b.meal} break ${slotTime(k)}` : sp ? `${sp.name} ${slotTime(s.start)}–${slotTime(s.end)}` : `${e.name}, ${slotTime(k)}: add a shift`;
+      h += `<td class="${slotTime(k).endsWith(':00') ? 'hr' : ''}"${bg ? ` style="background:${bg}"` : ''}${forPrint ? '' : ` data-act="cell" data-emp="${e.id}" data-k="${k}" title="${esc(tip)}"`}></td>`;
+    }
+    const ok = total === want && total > 0;
+    h += `<td class="num ${total ? (ok ? 'ok' : 'off') : ''}">${total ? total.toFixed(2).replace('.', ',') : ''}</td><td class="num rest">${total ? (24 - total).toFixed(2).replace('.', ',') : ''}</td></tr>`;
+  });
+  h += `</tbody></table>`;
+  // legend, like the bottom row of the paper schedule
+  const shown = sps.filter(sp => need[sp.id].some(x => x > 0) || day.shifts.some(s => s.sp === sp.id));
+  h += `<div class="glegend">${shown.map(sp => `<span><i style="background:${sp.color}"></i>${esc(sp.name)}</span>`).join('')}<span><i style="background:${BREAK_COLOR}"></i>Break</span></div>`;
+  if (!forPrint) {
+    h += `<details class="gcov"${day.shifts.length ? '' : ' open'}><summary>Staff on / needed per half hour</summary><table class="sgrid cov"><colgroup><col class="c-name">${'<col class="c-slot">'.repeat(SLOTS)}<col class="c-num"><col class="c-num"></colgroup><tbody>`;
+    shown.forEach(sp => {
+      h += `<tr><th class="name"><i class="dot" style="background:${sp.color}"></i> ${esc(sp.name)}</th>`;
+      for (let k = 0; k < SLOTS; k++) {
+        const nn = need[sp.id][k], cc = cover[sp.id][k];
+        h += `<td class="${cc < nn ? 'short' : nn || cc ? (cc > nn ? 'over' : 'ok') : ''}${slotTime(k).endsWith(':00') ? ' hr' : ''}" title="${esc(sp.name)} ${slotTime(k)}: ${cc} on, ${nn} needed">${nn || cc ? (cc < nn ? cc - nn : cc) : ''}</td>`;
+      }
+      h += `<td class="num"></td><td class="num"></td></tr>`;
+    });
+    h += `</tbody></table><p class="help" style="margin:6px 0 0">Numbers = staff on; red = short by that many.</p></details>`;
+  }
+  return h + `</div>`;
 }
 
 function timelineHTML(day, need, cover) {
@@ -792,7 +888,7 @@ function timelineHTML(day, need, cover) {
         const p = spById(s.sp), other = s.sp !== sp.id, w = s.end - s.start;
         const brk = (day.breaks || []).filter(b => b.emp === empId && b.slot >= s.start && b.slot < s.end);
         const tip = `${p ? p.name : '?'} ${slotTime(s.start)}–${slotTime(s.end)} (${w / 2}h)${s.fixed ? ', fixed rule' : ''}${brk.map(b => `, ${b.meal.toLowerCase()} break ${slotTime(b.slot)}`).join('')}. Click to edit.`;
-        h += `<div class="tl-bar${other ? ' other' : ''}" style="${col(s.start, s.end)};--c:${p ? p.color : '#888'}" data-act="edit-shift" data-id="${s.id}" title="${esc(tip)}">${other && w >= 4 ? `<b>${esc(spShort(p))}</b> ` : ''}${w >= 4 ? `${slotTime(s.start)}–${slotTime(s.end)}` : slotTime(s.start)}</div>`;
+        h += `<div class="tl-bar${other ? ' other' : ''}" style="${col(s.start, s.end)};--c:${p ? p.color : '#888'}" data-act="edit-shift" data-id="${s.id}" title="${esc(tip)}" data-ink="${inkOn(p ? p.color : '')}">${other && w >= 4 ? `<b>${esc(spShort(p))}</b> ` : ''}${w >= 4 ? `${slotTime(s.start)}–${slotTime(s.end)}` : slotTime(s.start)}</div>`;
         brk.forEach(b => h += `<div class="tl-brk" style="${col(b.slot, b.slot + b.len)}" title="${esc(b.meal)} break ${slotTime(b.slot)}–${slotTime(b.slot + b.len)}"></div>`);
       });
       h += `</div>`;
@@ -948,12 +1044,14 @@ function renderBadge() {
 
 /* ============ Shift dialog ============ */
 let dlgShift = null;
-function openShift(shift, spId) {
+function openShift(shift, spId, preset) {
   const {salesPoints: sps, employees: emps} = cfg();
   const day = getDay(curDate);
   dlgShift = shift;
   const f = $('#dlgForm');
   const s = shift || {emp: '', sp: spId || (sps[0] && sps[0].id), start: 22, end: 30};
+  if (preset) { const e = empById(preset.emp), pos = e && cfg().positions.find(p => e.allowed.includes(p.key) && empMask(e, p.sp)[preset.start]);
+    Object.assign(s, {emp: preset.emp, start: preset.start, end: Math.min(SLOTS, preset.start + 8)}, pos ? {sp: pos.sp} : {}); }
   const working = new Set(day.working);
   const sorted = [...emps].sort((a, b) => (working.has(b.id) - working.has(a.id)) || a.name.localeCompare(b.name));
   f.emp.innerHTML = sorted.map(e => `<option value="${e.id}" ${e.id === s.emp ? 'selected' : ''}>${esc(e.name)}${working.has(e.id) ? '' : ' (not ticked in)'}</option>`).join('');
@@ -1012,7 +1110,13 @@ document.addEventListener('click', e => {
       try { day.shifts = generate(curDate, day); placeBreaks(curDate, day); }
       catch (err) { console.error(err); alert('Sorry, the schedule could not be generated: ' + err.message + '\n\nPlease download a backup (Sync & backup) and send it to get this fixed.'); return; }
       break;
+    case 'dview': ui.dview = b.dataset.v; try { localStorage.setItem('staffsched.dview', ui.dview); } catch (e) {} render(); return;
     case 'add-shift': openShift(null, b.dataset.sp); return;
+    case 'cell': {
+      const s = day.shifts.find(x => x.emp === b.dataset.emp && +b.dataset.k >= x.start && +b.dataset.k < x.end);
+      if (s) openShift(s); else openShift(null, null, {emp: b.dataset.emp, start: +b.dataset.k});
+      return;
+    }
     case 'edit-shift': { const s = day.shifts.find(x => x.id === id); if (s) openShift(s); return; }
     case 'copy': {
       const t = scheduleText(curDate, day);
@@ -1020,7 +1124,7 @@ document.addEventListener('click', e => {
       return;
     }
     case 'print':
-      $('#printArea').innerHTML = `<h2>${esc(fmtDate(curDate))}</h2><pre>${esc(scheduleText(curDate, day).split('\n').slice(1).join('\n'))}</pre>${timelineHTML(day, computeNeed(curDate, day), computeCover(day))}`;
+      $('#printArea').innerHTML = `<h2 style="margin:0 0 6px;font-size:16px">Work schedule – ${esc(fmtDate(curDate))}</h2>${gridHTML(day, computeNeed(curDate, day), computeCover(day), true)}`;
       window.print(); return;
     // setup
     case 'sp-add': {
