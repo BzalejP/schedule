@@ -361,10 +361,15 @@ function ensureConfig(c) {
     const m = c.salesPoints.find(sp => sp.id === 'munkastova'); if (m) { m.baseStaff = 1; m.prepMin = 0; m.maxStaff = 3; }
     c.rulesVersion = 4;
   }
-  if (c.rulesVersion < 5) { if (!c.fixedRules.some(r => r.type === 'cover' && r.sp === 'placeur') && c.salesPoints.some(sp => sp.id === 'placeur')) c.fixedRules.push({type: 'cover', sp: 'placeur'}); c.rulesVersion = 5; changed = true; }
+  if (c.rulesVersion < 6) {
+    c.rules ||= {}; delete c.rules.splitOverH; c.rules.minSplitH = 2;
+    const n = c.salesPoints.find(sp => sp.id === 'noatun'); if (n) n.mealCover = 2;
+    if (c.rulesVersion >= 5) { c.rulesVersion = 6; changed = true; }
+  }
+  if (c.rulesVersion < 5) { if (!c.fixedRules.some(r => r.type === 'cover' && r.sp === 'placeur') && c.salesPoints.some(sp => sp.id === 'placeur')) c.fixedRules.push({type: 'cover', sp: 'placeur'}); c.rulesVersion = 6; changed = true; }
   c.rules ||= {};
   if ('maxShiftH' in c.rules) { delete c.rules.maxShiftH; c.rules.minShiftH = 2; changed = true; }
-  const RULE_DEFAULTS = {minShiftH: 2, dayHours: 10, signHours: 5, splitOverH: 1, minRestH: 6, mealBreakMin: 30,
+  const RULE_DEFAULTS = {minShiftH: 2, dayHours: 10, signHours: 5, minSplitH: 2, minRestH: 6, mealBreakMin: 30,
     meals: [{label: 'Lunch', from: '11:30', to: '13:00'}, {label: 'Dinner', from: '16:30', to: '18:30'}]};
   for (const k in RULE_DEFAULTS) if (c.rules[k] === undefined) { c.rules[k] = clone(RULE_DEFAULTS[k]); changed = true; }
   (c.positions || []).forEach(p => { // day now starts 05:00
@@ -470,7 +475,9 @@ function empMask(e, spId) {
 function saveLocal() { try { localStorage.setItem(LS, JSON.stringify(state)); } catch (e) {} }
 
 /* ============ Demand: staff needed per 30-min slot ============ */
-function computeNeed(date, day) {
+// planning=true: the generator's target (one extra during staff meals so breaks can be taken).
+// planning=false: what must actually be on the floor (used for warnings and the staff on/needed numbers).
+function computeNeed(date, day, planning = true) {
   const need = {};
   for (const sp of cfg().salesPoints) {
     const arr = new Array(SLOTS).fill(0);
@@ -506,6 +513,10 @@ function computeNeed(date, day) {
       if (add) for (let s = toSlot(t.from); s < endSlot(t.to); s++) if (open[s]) arr[s] += add;
     });
     if (+sp.maxStaff > 0) for (let s = 0; s < SLOTS; s++) arr[s] = Math.min(arr[s], +sp.maxStaff);
+    // Staff meals: keep at least "mealCover" people working while one is on a break
+    if (+sp.mealCover > 0) (R().meals || []).forEach(m => {
+      for (let s = toSlot(m.from); s < endSlot(m.to); s++) if (arr[s] > 0) arr[s] = Math.max(arr[s], +sp.mealCover + (planning ? 1 : 0));
+    });
   }
   return need;
 }
@@ -528,7 +539,7 @@ function gapRanges(n, c) {
 /* ============ Working-time rules ============ */
 const R = () => cfg().rules;
 const targetSlots = (e, day) => Math.round(((day.signing || []).includes(e.id) ? R().signHours : R().dayHours) * 2);
-const minGapSlots = () => Math.round(R().splitOverH * 2) + 1;      // gap must be LONGER than splitOverH
+const minGapSlots = () => Math.max(1, Math.round(R().minSplitH * 2)); // break between the two parts of a day
 const minPartSlots = () => Math.max(1, Math.round(R().minShiftH * 2));
 // Earliest slot today that still gives the minimum rest after yesterday's last shift.
 function earliestStart(e, date) {
@@ -564,6 +575,8 @@ function placeBreaks(date, day) {
         const s = at(k); if (!s) continue;
         let fits = true, spare = 0;
         for (let j = k; j < k + bl; j++) { const t = at(j); if (!t || t.sp !== s.sp) fits = false; else spare += cover[s.sp][j] - need[s.sp][j]; }
+        const mc = +(spById(s.sp) || {}).mealCover || 0;
+        if (fits && mc) for (let j = k; j < k + bl; j++) if (cover[s.sp][j] - 1 < mc) spare -= 100; // would leave fewer than mealCover working
         if (fits && (!bestB || spare > bestB.spare)) bestB = {slot: k, sp: s.sp, spare};
       }
       if (!bestB) { notes.push(`${e.name} has no room for a ${m.label.toLowerCase()} break.`); return; }
@@ -599,7 +612,7 @@ function checkRules(date, day) {
     if (blocks.length > 2) out.push(`${e.name}'s day is split into ${blocks.length} parts (max 2).`);
     for (let i = 1; i < blocks.length; i++) {
       const gap = blocks[i].start - blocks[i - 1].end;
-      if (gap < minGapSlots()) out.push(`${e.name} has a ${gap / 2}h split at ${slotTime(blocks[i - 1].end)}; a split must be longer than ${R().splitOverH}h.`);
+      if (gap < minGapSlots()) out.push(`${e.name} has only a ${gap / 2}h break between shifts at ${slotTime(blocks[i - 1].end)}; it must be at least ${R().minSplitH}h.`);
     }
     const early = earliestStart(e, date);
     if (blocks[0].start < early) out.push(`${e.name} gets only ${(blocks[0].start + Math.round(R().minRestH * 2) - early) / 2}h rest after yesterday (minimum ${R().minRestH}h).`);
@@ -991,7 +1004,7 @@ function renderDay() {
 // Alerts + timeline: redrawn on their own while bookings are typed, so the buttons never move.
 function dayResultsHTML(day) {
   const {salesPoints: sps, employees: emps} = cfg();
-  const need = computeNeed(curDate, day), cover = computeCover(day);
+  const need = computeNeed(curDate, day, false), cover = computeCover(day);
   const working = new Set(day.working);
   // Alerts
   const alerts = [];
@@ -1143,6 +1156,7 @@ function renderSetup() {
     </div>
     <div class="fields">
       <label>Staff whenever open <input type="number" min="1" value="${sp.baseStaff}" data-ch="sp" data-id="${sp.id}" data-f="baseStaff"></label>
+      <label>Keep working during staff meals (0 = off) <input type="number" min="0" value="${sp.mealCover || 0}" data-ch="sp" data-id="${sp.id}" data-f="mealCover"></label>
       <label>Most staff at once (0 = no limit) <input type="number" min="0" value="${sp.maxStaff || 0}" data-ch="sp" data-id="${sp.id}" data-f="maxStaff"></label>
       <label>Arrive before opening (min) <input type="number" min="0" step="30" value="${sp.prepMin}" data-ch="sp" data-id="${sp.id}" data-f="prepMin"></label>
       <label>Stay after closing (min) <input type="number" min="0" step="30" value="${sp.closeMin}" data-ch="sp" data-id="${sp.id}" data-f="closeMin"></label>
@@ -1214,7 +1228,7 @@ function renderSetup() {
       <div class="fields" style="max-width:640px">
         <label>Standard day (hours) <input type="number" min="1" step="0.5" value="${rules.dayHours}" data-ch="rule" data-f="dayHours"></label>
         <label>Signing on/off day (hours) <input type="number" min="0.5" step="0.5" value="${rules.signHours}" data-ch="rule" data-f="signHours"></label>
-        <label>Split must be longer than (hours) <input type="number" min="0" step="0.5" value="${rules.splitOverH}" data-ch="rule" data-f="splitOverH"></label>
+        <label>Break between shifts at least (hours) <input type="number" min="0.5" step="0.5" value="${rules.minSplitH}" data-ch="rule" data-f="minSplitH"></label>
         <label>Minimum rest between days (hours) <input type="number" min="0" step="0.5" value="${rules.minRestH}" data-ch="rule" data-f="minRestH"></label>
         <label>Shortest part of a split (hours) <input type="number" min="0.5" step="0.5" value="${rules.minShiftH}" data-ch="rule" data-f="minShiftH"></label>
         <label>Meal break (minutes) <input type="number" min="30" step="30" value="${rules.mealBreakMin}" data-ch="rule" data-f="mealBreakMin"></label>
@@ -1357,7 +1371,7 @@ document.addEventListener('click', e => {
       return;
     }
     case 'print':
-      $('#printArea').innerHTML = `<h2 style="margin:0 0 6px;font-size:16px">Work schedule – ${esc(fmtDate(curDate))}</h2>${gridHTML(day, computeNeed(curDate, day), computeCover(day), true)}`;
+      $('#printArea').innerHTML = `<h2 style="margin:0 0 6px;font-size:16px">Work schedule – ${esc(fmtDate(curDate))}</h2>${gridHTML(day, computeNeed(curDate, day, false), computeCover(day), true)}`;
       window.print(); return;
     // setup
     case 'sp-add': {
@@ -1420,7 +1434,7 @@ document.addEventListener('change', e => {
     const t = spById(id).bookingTypes[+el.dataset.i];
     t[f] = f === 'perStaff' ? Math.max(0, parseInt(el.value, 10) || 0) : (f === 'label' ? (el.value.trim() || t.label) : el.value);
   }
-  else if (ch === 'rule') { C.rules[f] = Math.max(f === 'splitOverH' || f === 'minRestH' ? 0 : 0.5, parseFloat(el.value) || 0); }
+  else if (ch === 'rule') { C.rules[f] = Math.max(f === 'minRestH' ? 0 : 0.5, parseFloat(el.value) || 0); }
   else if (ch === 'meal') { C.rules.meals[+el.dataset.i][f] = el.value; }
   else if (ch === 'sp') { const sp = spById(id); sp[f] = ['name', 'type', 'color'].includes(f) ? el.value : Math.max(0, parseFloat(el.value) || 0); }
   else if (ch === 'emp') { const em = empById(id); em[f] = f === 'headAt' ? (el.value || null) : el.value; if (f === 'headAt' && em.headAt && !empMask({...em, headAt: null}, em.headAt).some(Boolean)) em.allowed.push(...C.positions.filter(p => p.sp === em.headAt).map(p => p.key)); }
