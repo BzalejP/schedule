@@ -431,7 +431,7 @@ const empById = id => cfg().employees.find(e => e.id === id);
 function getDay(date) {
   if (!state.days[date]) state.days[date] = {working: [], bookings: {}, hours: {}, shifts: []};
   const d = state.days[date];
-  d.working ||= []; d.signing ||= []; d.bookings ||= {}; d.hours ||= {}; d.shifts ||= []; d.breaks ||= [];
+  d.working ||= []; d.signing ||= []; d.signDir ||= {}; d.bookings ||= {}; d.hours ||= {}; d.shifts ||= []; d.breaks ||= [];
   // shifts saved when the day started at 06:00 are moved to the 05:00 grid
   if (d.slotBase !== DAY0) {
     const diff = ((d.slotBase ?? 360) - DAY0) / 30;
@@ -561,12 +561,27 @@ function placeBreaks(date, day) {
 }
 
 // Rule check for the day as it stands (also after hand edits).
+// Signing off: leaves when the ship docks, so works before arrival. Signing on: boards at arrival, works after.
+function signWindow(e, date, day) {
+  if (!(day.signing || []).includes(e.id)) return [0, SLOTS];
+  const arr = portFor(date, day).arr; if (!arr) return [0, SLOTS];
+  return (day.signDir || {})[e.id] === 'on' ? [toSlot(arr), SLOTS] : [0, toSlot(arr)];
+}
+const signLabel = (e, day) => (day.signDir || {})[e.id] === 'on' ? 'signs on' : 'signs off';
+
 function checkRules(date, day) {
   const out = [];
   cfg().employees.forEach(e => {
     const blocks = workBlocks(day, e.id); if (!blocks.length) return;
+    if ((day.signing || []).includes(e.id)) {
+      const arr = portFor(date, day).arr, [w0, w1] = signWindow(e, date, day);
+      if (!arr) out.push(`${e.name} ${signLabel(e, day)} today, but there is no port arrival (set it under Opening hours today).`);
+      if (blocks.length > 1) out.push(`${e.name} ${signLabel(e, day)} today: the hours must be in a row, not split.`);
+      const bad = blocks.find(b => b.start < w0 || b.end > w1);
+      if (bad && arr) out.push(`${e.name} ${signLabel(e, day)} at ${arr} arrival, but works ${slotTime(bad.start)}–${slotTime(bad.end)}.`);
+    }
     const total = blocks.reduce((a, b) => a + b.end - b.start, 0), want = targetSlots(e, day);
-    if (total !== want) out.push(`${e.name} works ${total / 2}h today (should be ${want / 2}h${want !== R().dayHours * 2 ? ', signing on/off' : ''}).`);
+    if (total !== want) out.push(`${e.name} works ${total / 2}h today (should be ${want / 2}h${(day.signing || []).includes(e.id) ? ', ' + signLabel(e, day).replace('signs', 'signing') : ''}).`);
     if (blocks.length > 2) out.push(`${e.name}'s day is split into ${blocks.length} parts (max 2).`);
     for (let i = 1; i < blocks.length; i++) {
       const gap = blocks[i].start - blocks[i - 1].end;
@@ -606,6 +621,8 @@ function prevTeam(date, spId) {
   return [];
 }
 
+const empMaskBase = (e, spId) => empMask(e, spId);
+
 /* ============ Schedule generator ============ */
 function generate(date, day) {
   const {salesPoints: sps, employees} = cfg();
@@ -614,6 +631,10 @@ function generate(date, day) {
   const pool = employees.filter(e => day.working.includes(e.id));
   const used = new Set(), shifts = [], notes = [];
   const minPart = minPartSlots(), minGap = minGapSlots();
+  // Within the generator, a signing person may only work before (off) / after (on) the ship's arrival.
+  const empMask = (e, spId) => { const m = empMaskBase(e, spId), [w0, w1] = signWindow(e, date, day); return m.map((x, k) => x && k >= w0 && k < w1); };
+  const inWindow = (e, a, b) => { const [w0, w1] = signWindow(e, date, day); return a >= w0 && b <= w1; };
+  const oneBlock = e => (day.signing || []).includes(e.id);
   const isOpenDay = spId => spHours(spById(spId), date, day).periods.length > 0;
   const homeOpen = e => e.headAt && spById(e.headAt) && isOpenDay(e.headAt);
   const place = (e, spId, start, end, fixed, role) => {
@@ -649,7 +670,7 @@ function generate(date, day) {
       let bp = null;
       const consider = (score, parts) => { if (!bp || score > bp.score) bp = {score, parts, tot}; };
       for (const I of info) for (let a = 0; a + tot <= SLOTS; a++) { const g = gain(I, a, tot); if (g >= 0) consider(g * 10 + 1, [{sp: I.sp, a, L: tot}]); }
-      for (let L1 = minPart; L1 <= tot - minPart; L1++) {
+      for (let L1 = minPart; !oneBlock(e) && L1 <= tot - minPart; L1++) {
         const L2 = tot - L1, suf = new Array(SLOTS + 1).fill(null);
         for (let s = SLOTS - 1; s >= 0; s--) {
           suf[s] = suf[s + 1];
@@ -707,7 +728,7 @@ function generate(date, day) {
       // evening opening: the closing shift covers the night alone, no separate opening shift
       const cr = closerOf(r.sp);
       if (!fixedStart && cr && start + r.hours * 2 > endSlot(cr.end) - cr.hours * 2 + 8) { notes.push(`${sp.name} opens in the evening today, so the closing shift covers it alone.`); return; }
-      const base = e => restOk(e, start) && (r.who === 'headwaiter' ? e.headAt === r.sp : empMask(e, r.sp)[start] && !(homeOpen(e) && e.headAt !== r.sp));
+      const base = e => restOk(e, start) && inWindow(e, start, start + Math.min(r.hours * 2, targetSlots(e, day))) && (r.who === 'headwaiter' ? e.headAt === r.sp : empMask(e, r.sp)[start] && !(homeOpen(e) && e.headAt !== r.sp));
       let cands = free().filter(base), e = pickHolder(r, cands);
       if (!e) {
         const pool2 = cands.filter(x => !notMine(x, r));
@@ -715,7 +736,7 @@ function generate(date, day) {
         e = pool2[0] || cands[0];
       }
       if (!e && r.who === 'headwaiter') { // no headwaiter in: anyone who may work there at that time
-        const any = free().filter(x => restOk(x, start) && empMask(x, r.sp)[start] && !notMine(x, r) && !(homeOpen(x) && x.headAt !== r.sp)).sort((a, b) => flex(a) - flex(b));
+        const any = free().filter(x => restOk(x, start) && inWindow(x, start, start + Math.min(r.hours * 2, targetSlots(x, day))) && empMask(x, r.sp)[start] && !notMine(x, r) && !(homeOpen(x) && x.headAt !== r.sp)).sort((a, b) => flex(a) - flex(b));
         e = any[0]; if (e) notes.push(`No ${sp.name} headwaiter is in, so ${e.name} opens.`);
       }
       holderNote(r, e, 'opened');
@@ -761,7 +782,8 @@ function generate(date, day) {
       if (h.periods.length >= 2) {
         const dinnerOpen = toSlot(h.periods.reduce((a, p) => toSlot(p.open) > toSlot(a.open) ? p : a).open);
         const l0 = toSlot(r.lunch[0]), l1 = endSlot(r.lunch[1]), d0 = dinnerOpen - Math.round(r.dinnerBeforeMin / 30);
-        uniq.forEach(e => {
+        uniq.filter(oneBlock).forEach(e => { const p = bestPlan(e, 50, r.sp); if (p) assignPlan(e, p); }); // signing: one block
+        uniq.filter(e => !oneBlock(e)).forEach(e => {
           if (!restOk(e, l0)) { notes.push(`${e.name} can't start ${sp.name} lunch at ${r.lunch[0]} without ${R().minRestH}h rest.`); return; }
           const T = targetSlots(e, day), lunchLen = Math.min(l1 - l0, T), rest = T - lunchLen;
           place(e, r.sp, l0, l0 + lunchLen, 'split', 'team');
@@ -880,8 +902,9 @@ function renderDay() {
   const who = `<div class="card"><h3>Who's in <span class="muted">${day.working.length}</span>
     <span class="acts"><button data-act="all">All</button><button data-act="none">None</button><button data-act="copyprev" title="Copy from the same weekday last week">Last week</button></span></h3>
     <div class="chips">${emps.map(e => `<button class="chip ${working.has(e.id) ? 'on' : ''}" data-act="toggle" data-id="${e.id}">${esc(e.name)}${e.headAt && spById(e.headAt) ? ` <small>★ ${esc(spById(e.headAt).name)}</small>` : ''}</button>`).join('') || '<span class="muted">Add employees in Setup.</span>'}</div>
-    ${day.working.length ? `<div class="signrow"><span class="muted">Signing on/off today (${R().signHours}h):</span>
-      ${emps.filter(e => working.has(e.id)).map(e => `<button class="chip small ${day.signing.includes(e.id) ? 'on' : ''}" data-act="sign" data-id="${e.id}">${esc(e.name)}</button>`).join('')}</div>` : ''}</div>`;
+    ${day.working.length ? `<div class="signrow"><span class="muted">Signing off / on today (${R().signHours}h, in a row${portFor(curDate, day).arr ? `; ship arrives ${portFor(curDate, day).arr}` : '; no port arrival today'}). Tap to switch:</span>
+      ${emps.filter(e => working.has(e.id)).map(e => { const sg = day.signing.includes(e.id), on = sg && day.signDir[e.id] === 'on';
+        return `<button class="chip small ${sg ? 'on' : ''}" data-act="sign" data-id="${e.id}" title="Tap: signing off → signing on → neither">${esc(e.name)}${sg ? (on ? ' ⬆ on' : ' ⬇ off') : ''}</button>`; }).join('')}</div>` : ''}</div>`;
 
   const hours = `<div class="card"><h3>Opening hours today</h3>${sps.filter(sp => !sp.hoursFrom).map(sp => {
     const h = spHours(sp, curDate, day), ov = !!day.hours[sp.id];
@@ -985,7 +1008,7 @@ function gridHTML(day, need, cover, forPrint) {
     const mine = day.shifts.filter(s => s.emp === e.id);
     const total = workBlocks(day, e.id).reduce((a, b) => a + b.end - b.start, 0) / 2;
     const want = targetSlots(e, day) / 2;
-    h += `<tr><th class="name">${esc(e.name)}${e.headAt ? ' <span class="star">★</span>' : ''}${(day.signing || []).includes(e.id) ? ' <span class="tag">on/off</span>' : ''}</th>`;
+    h += `<tr><th class="name">${esc(e.name)}${e.headAt ? ' <span class="star">★</span>' : ''}${(day.signing || []).includes(e.id) ? ` <span class="tag">${(day.signDir || {})[e.id] === 'on' ? 'sign on' : 'sign off'}</span>` : ''}</th>`;
     for (let k = 0; k < SLOTS; k++) {
       const s = mine.find(x => k >= x.start && k < x.end), b = brk.get(e.id + ':' + k), sp = s && spById(s.sp);
       const bg = b ? BREAK_COLOR : sp ? sp.color : '';
@@ -1256,7 +1279,11 @@ document.addEventListener('click', e => {
     case 'prev-day': setDate(addDays(curDate, -1)); return;
     case 'next-day': setDate(addDays(curDate, 1)); return;
     case 'today': setDate(todayStr()); return;
-    case 'sign': day.signing = day.signing.includes(id) ? day.signing.filter(x => x !== id) : [...day.signing, id]; break;
+    case 'sign':
+      if (!day.signing.includes(id)) { day.signing = [...day.signing, id]; day.signDir[id] = 'off'; }
+      else if (day.signDir[id] !== 'on') day.signDir[id] = 'on';
+      else { day.signing = day.signing.filter(x => x !== id); delete day.signDir[id]; }
+      break;
     case 'toggle': day.working = day.working.includes(id) ? day.working.filter(x => x !== id) : [...day.working, id]; break;
     case 'all': day.working = C.employees.map(x => x.id); break;
     case 'none': day.working = []; break;
