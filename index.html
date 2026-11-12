@@ -578,6 +578,12 @@ function checkRules(date, day) {
   return out.concat(day.breakNotes || []);
 }
 
+// A fingerprint of a day's shifts, to notice when the day before changes after generating.
+function shiftSig(date) {
+  const d = state.days[date]; if (!d || !d.shifts) return '';
+  return d.shifts.map(s => `${s.emp}:${s.sp}:${s.start}-${s.end}`).sort().join('|');
+}
+
 /* ============ Continuity: same people on the same jobs ============ */
 const isRole = (s, spId, role) => s.sp === spId && (s.role === role || (role === 'open' && s.fixed === 'headwaiter') || (role === 'close' && s.fixed === 'closing'));
 // Who did this job on the most recent days, and for how many days in a row.
@@ -783,6 +789,7 @@ function generate(date, day) {
     assignPlan(pick.e, pick.p);
   }
   day.genNotes = notes;
+  day.prevSig = shiftSig(addDays(date, -1));
   return shifts;
 }
 
@@ -946,7 +953,11 @@ function dayResultsHTML(day) {
     if (idle.length) alerts.push(['info', `In today but not on the schedule: ${idle.map(e => esc(e.name)).join(', ')}`]);
     const notIn = [...new Set(day.shifts.filter(s => !working.has(s.emp)).map(s => s.emp))].map(empById).filter(Boolean);
     if (notIn.length) alerts.push(['warn', `On the schedule but not ticked in: ${notIn.map(e => esc(e.name)).join(', ')}`]);
-    (day.genNotes || []).forEach(t => alerts.push(['warn', esc(t)]));
+    // Rest between days is always checked live (below), so saved rest messages are dropped.
+    const restMsg = /without \d+(\.\d+)?h rest after yesterday/;
+    const stale = day.prevSig === undefined ? null : day.prevSig !== shiftSig(addDays(curDate, -1));
+    if (stale) alerts.push(['info', `${WDL[wdIndex(addDays(curDate, -1))]}'s schedule has changed since this day was generated. Rest times are checked against the new ${WDL[wdIndex(addDays(curDate, -1))]} schedule; press <b>Generate schedule</b> to redo this day using it.`]);
+    (day.genNotes || []).filter(t => !restMsg.test(t) && !(stale && /day.? in a row|team:|rest/.test(t))).forEach(t => alerts.push(['warn', esc(t)]));
     const outside = day.shifts.filter(s => { const e = empById(s.emp); if (!e || !spById(s.sp) || s.fixed) return false;
       const m = empMask(e, s.sp); for (let k = s.start; k < s.end; k++) if (!m[k]) return true; return false; });
     if (outside.length) alerts.push(['warn', `Outside their work positions: ${outside.map(s => `${esc(empById(s.emp).name)} at ${esc(spById(s.sp).name)} ${slotTime(s.start)}–${slotTime(s.end)}`).join(', ')}`]);
