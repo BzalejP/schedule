@@ -78,9 +78,16 @@ main{padding:16px;max-width:1500px;margin:0 auto}
 .tl-lab{padding-right:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px}
 .tl-sp{display:flex;align-items:center;gap:8px;padding:12px 0 4px;border-top:1px solid var(--line);margin-top:6px}
 .tl-sp:first-of-type{border-top:none}
-.tl-bar{height:24px;border-radius:6px;color:#fff;font-size:12px;padding:3px 8px;white-space:nowrap;overflow:hidden;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(0,0,0,.1)}
+.tl-bar{height:24px;border-radius:6px;background:var(--c);color:#fff;font-size:12px;padding:3px 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
+.tl-bar b{font-weight:700}
+.tl-lab{display:flex;align-items:center;gap:6px}
+.tl-lab .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tl-lab .hrs{margin-left:auto;font-size:11px;color:var(--muted);padding-right:4px}
+.tl-lab .star{color:#d97706}
+.tl-row:not(.tl-head):not(.tl-cov):hover{background:var(--chip)}
 .tl-bar span{opacity:.85}
-.tl-brk{height:24px;z-index:2;pointer-events:none;border-radius:3px;background:repeating-linear-gradient(135deg,rgba(255,255,255,.85) 0 4px,rgba(255,255,255,.35) 4px 8px)}
+.tl-brk{height:24px;z-index:2;pointer-events:none;position:relative}
+.tl-brk::after{content:'';position:absolute;left:2px;right:2px;bottom:2px;height:5px;border-radius:3px;background:repeating-linear-gradient(90deg,#fff 0 4px,rgba(255,255,255,.4) 4px 7px)}
 .tl-bar{position:relative}
 .signrow{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-top:10px;padding-top:8px;border-top:1px dashed var(--line);font-size:12px}
 .chip.small{padding:2px 9px;font-size:12px}
@@ -592,21 +599,46 @@ function generate(date, day) {
   return shifts;
 }
 
+// Everyone on the schedule today, each with all their shifts, grouped under the sales point
+// where they work the most hours (ties: the earliest shift).
+function peopleByPlace(day) {
+  const sps = cfg().salesPoints, byEmp = new Map();
+  day.shifts.forEach(s => { if (!byEmp.has(s.emp)) byEmp.set(s.emp, []); byEmp.get(s.emp).push(s); });
+  const groups = new Map(sps.map(sp => [sp.id, []]));
+  byEmp.forEach((list, empId) => {
+    list.sort((a, b) => a.start - b.start);
+    const hrs = {}; list.forEach(s => hrs[s.sp] = (hrs[s.sp] || 0) + s.end - s.start);
+    const e = empById(empId);
+    let main = list[0].sp;
+    for (const sp in hrs) if (hrs[sp] > hrs[main]) main = sp;
+    if (e && e.headAt && hrs[e.headAt]) main = e.headAt; // headwaiters always sit under their own place
+    if (!groups.has(main)) groups.set(main, []);
+    groups.get(main).push({empId, e, list, total: list.reduce((a, s) => a + s.end - s.start, 0)});
+  });
+  groups.forEach(g => g.sort((a, b) => (!!(b.e && b.e.headAt && groups.get(b.e.headAt) === g) - !!(a.e && a.e.headAt && groups.get(a.e.headAt) === g))
+    || a.list[0].start - b.list[0].start || a.list[0].end - b.list[0].end));
+  return groups;
+}
+const spShort = sp => sp ? sp.name.split(' ')[0] : '?';
+
 function bookingSummary(sp, day) {
   const bk = day.bookings[sp.id] || {};
   return (sp.bookingTypes || []).filter(t => +bk[t.key] > 0).map(t => `${t.label.toLowerCase()} ${bk[t.key]}`).join(', ');
 }
 function scheduleText(date, day) {
-  const lines = ['Work schedule – ' + fmtDate(date)];
+  const lines = ['Work schedule – ' + fmtDate(date)], groups = peopleByPlace(day);
   cfg().salesPoints.forEach(sp => {
-    const sh = day.shifts.filter(s => s.sp === sp.id).sort((a, b) => a.start - b.start);
-    if (!sh.length) return;
+    const people = groups.get(sp.id) || [], bk = bookingSummary(sp, day);
+    if (!people.length && !bk) return;
     lines.push('', sp.name.toUpperCase());
-    const bk = bookingSummary(sp, day); if (bk) lines.push('  Bookings: ' + bk);
-    sh.forEach(s => { const e = empById(s.emp);
-      const br = (day.breaks || []).filter(b => b.emp === s.emp && b.slot >= s.start && b.slot < s.end).map(b => `${b.meal.toLowerCase()} ${slotTime(b.slot)}`).join(', ');
-      lines.push(`  ${slotTime(s.start)}–${slotTime(s.end)}  ${e ? e.name : '?'}${e && e.headAt === sp.id ? ' (headwaiter)' : ''}${br ? '  [' + br + ']' : ''}`); });
+    if (bk) lines.push('  Bookings: ' + bk);
+    people.forEach(({empId, e, list, total}) => {
+      const parts = list.map(s => `${slotTime(s.start)}–${slotTime(s.end)}${s.sp !== sp.id ? ' ' + spById(s.sp).name : ''}`).join(' + ');
+      const br = (day.breaks || []).filter(b => b.emp === empId).sort((x, y) => x.slot - y.slot).map(b => `${b.meal.toLowerCase()} ${slotTime(b.slot)}`).join(', ');
+      lines.push(`  ${(e ? e.name : '?') + (e && e.headAt === sp.id ? ' ★' : '')}`.padEnd(16) + `${parts}  (${total / 2}h)${br ? '  [' + br + ']' : ''}`);
+    });
   });
+  lines.push('', '★ = headwaiter');
   return lines.join('\n');
 }
 
@@ -742,24 +774,28 @@ function timelineHTML(day, need, cover) {
   day.shifts.forEach(s => { r0 = Math.min(r0, s.start); r1 = Math.max(r1, s.end); });
   if (r1 <= r0) return `<div class="tl-wrap"><div class="empty">Every sales point is closed today.</div></div>`;
   const cols = r1 - r0;
-  let h = `<div class="tl-wrap"><div class="tl" style="--cols:150px repeat(${cols},minmax(30px,1fr));min-width:${150 + cols * 30}px">`;
+  let h = `<div class="tl-wrap"><div class="tl" style="--cols:170px repeat(${cols},minmax(30px,1fr));min-width:${170 + cols * 30}px">`;
   h += `<div class="tl-row tl-head"><div class="tl-lab"></div>`;
   for (let i = r0; i < r1; i++) { const t = slotTime(i); h += `<div class="tl-time ${t.endsWith(':30') ? 'half' : ''}">${t.endsWith(':00') ? t.slice(0, 2) : ''}</div>`; }
   h += `</div>`;
+  const groups = peopleByPlace(day), col = (x, y) => `grid-row:1;grid-column:${x - r0 + 2}/${y - r0 + 2}`;
   sps.forEach(sp => {
-    const n = need[sp.id], c = cover[sp.id];
-    const shifts = day.shifts.filter(s => s.sp === sp.id).sort((a, b) => a.start - b.start || a.end - b.end);
-    if (!n.some(x => x > 0) && !shifts.length) return;
+    const n = need[sp.id], c = cover[sp.id], people = groups.get(sp.id) || [];
+    if (!n.some(x => x > 0) && !people.length && !day.shifts.some(s => s.sp === sp.id)) return;
     const hr = spHours(sp, curDate, day);
     h += `<div class="tl-sp"><span class="dot" style="background:${sp.color}"></span><b>${esc(sp.name)}</b>
       <span class="muted">${hoursLabel(hr)}</span>
       <button class="link" data-act="add-shift" data-sp="${sp.id}">+ shift</button></div>`;
-    const byEmp = new Map(); shifts.forEach(s => { if (!byEmp.has(s.emp)) byEmp.set(s.emp, []); byEmp.get(s.emp).push(s); });
-    byEmp.forEach((list, empId) => {
-      const e = empById(empId);
-      h += `<div class="tl-row"><div class="tl-lab" style="grid-row:1">${esc(e ? e.name : '(removed)')}${e && e.headAt === sp.id ? ' ★' : ''}</div>
-        ${(day.breaks || []).filter(b => b.emp === empId && b.sp === sp.id).map(b => `<div class="tl-brk" style="grid-row:1;grid-column:${b.slot - r0 + 2}/${b.slot + b.len - r0 + 2}" title="${esc(b.meal)} break ${slotTime(b.slot)}–${slotTime(b.slot + b.len)}"></div>`).join('')}
-        ${list.map(s => `<div class="tl-bar" style="grid-row:1;grid-column:${s.start - r0 + 2}/${s.end - r0 + 2};background:${sp.color}" data-act="edit-shift" data-id="${s.id}" title="${s.fixed ? 'Fixed rule shift. ' : ''}Click to edit">${slotTime(s.start)}–${slotTime(s.end)} <span>· ${(s.end - s.start) / 2}h${s.fixed ? ' · fixed' : ''}</span></div>`).join('')}</div>`;
+    people.forEach(({empId, e, list, total}) => {
+      h += `<div class="tl-row"><div class="tl-lab" style="grid-row:1"><span class="nm">${esc(e ? e.name : '(removed)')}${e && e.headAt ? ` <span class="star" title="Headwaiter, ${esc((spById(e.headAt) || {}).name || '')}">★</span>` : ''}</span><span class="hrs">${total / 2}h</span></div>`;
+      list.forEach(s => {
+        const p = spById(s.sp), other = s.sp !== sp.id, w = s.end - s.start;
+        const brk = (day.breaks || []).filter(b => b.emp === empId && b.slot >= s.start && b.slot < s.end);
+        const tip = `${p ? p.name : '?'} ${slotTime(s.start)}–${slotTime(s.end)} (${w / 2}h)${s.fixed ? ', fixed rule' : ''}${brk.map(b => `, ${b.meal.toLowerCase()} break ${slotTime(b.slot)}`).join('')}. Click to edit.`;
+        h += `<div class="tl-bar${other ? ' other' : ''}" style="${col(s.start, s.end)};--c:${p ? p.color : '#888'}" data-act="edit-shift" data-id="${s.id}" title="${esc(tip)}">${other && w >= 4 ? `<b>${esc(spShort(p))}</b> ` : ''}${w >= 4 ? `${slotTime(s.start)}–${slotTime(s.end)}` : slotTime(s.start)}</div>`;
+        brk.forEach(b => h += `<div class="tl-brk" style="${col(b.slot, b.slot + b.len)}" title="${esc(b.meal)} break ${slotTime(b.slot)}–${slotTime(b.slot + b.len)}"></div>`);
+      });
+      h += `</div>`;
     });
     h += `<div class="tl-row tl-cov"><div class="tl-lab muted" style="font-size:11px">staff on / needed</div>`;
     for (let i = r0; i < r1; i++) {
