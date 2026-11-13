@@ -637,7 +637,7 @@ function computeNeed(date, day, planning = true) {
     const dr = cfg().dockRule;
     // Port calls: at least "people" staff around arrival/departure, only when passengers are above "minPax"
     if (dr && dr.sp === sp.id && +dr.people > 0 && (+day.pax || 0) > (+dr.minPax || 0)) {
-      const pc = portFor(date, day), add = (a, b) => { for (let s = Math.max(0, a); s < Math.min(SLOTS, b); s++) arr[s] = Math.max(arr[s], +dr.people); };
+      const pc = portFor(date, day), add = (a, b) => { for (let s = Math.max(0, a); s < Math.min(SLOTS, b); s++) if (open[s]) arr[s] = Math.max(arr[s], +dr.people); }; // only while open
       (pc.calls || []).forEach(([, a, d]) => {   // every arrival and departure of the day
         if (a) add(toSlot(a) - Math.round(dr.beforeArrMin / 30), toSlot(a));
         if (d) add(toSlot(d), toSlot(d) + Math.round(dr.afterDepMin / 30));
@@ -717,6 +717,7 @@ function placeBreaks(date, day) {
       let bestB = null;
       for (let k = wS; k + bl <= wE; k++) {
         const s = at(k); if (!s) continue;
+        if (!at(k - 1) || !at(k + bl)) continue; // never start or end a shift part with a break
         let fits = true, spare = 0;
         const oh = spHours(spById(s.sp), date, day);
         for (let j = k; j < k + bl; j++) { const t = at(j); if (!t || t.sp !== s.sp) fits = false; else spare += isOpenAt(oh, j) ? cover[s.sp][j] - need[s.sp][j] : 1000; } // closed/prep time: best
@@ -898,6 +899,29 @@ function generate(date, day) {
     }
     return null;
   }
+  // After a fixed block, fill the rest of someone's day with one more block elsewhere (gap >= the split minimum).
+  function topUp(e, fixed) {
+    const left = targetSlots(e, day) - fixed.reduce((t, [a, b]) => t + b - a, 0);
+    if (left < minPart || fixed.length !== 1) return;
+    const [fa, fb] = fixed[0], E = earliestStart(e, date); let best = null;
+    for (const sp of sps) {
+      const m = empMask(e, sp.id), n = need[sp.id], c = cover[sp.id], cw = capWin[sp.id], lc = lunchCap[sp.id];
+      const ok = k => k >= E && m[k] && n[k] > 0 && !(cw && k >= cw[0] && k < cw[1] && n[k] - c[k] <= 0) && !(lc && k >= lc[0] && k < lc[1] && n[k] - c[k] <= 0);
+      for (let L = left; L >= minPart; L--) {
+        let found = false;
+        for (let a = 0; a + L <= SLOTS; a++) {
+          const b = a + L; if (!(b + minGap <= fa || a >= fb + minGap)) continue;
+          let good = true, g = 0, o = 0;
+          for (let k = a; k < b; k++) { if (!ok(k)) { good = false; break; } if (n[k] - c[k] > 0) g++; else o += c[k] - n[k] + 1; }
+          if (!good) continue; found = true;
+          const sc = L * 1e6 + g * 1000 - o; if (!best || sc > best.sc) best = {sp: sp.id, a, b, sc};
+        }
+        if (found) break;
+      }
+    }
+    if (best) place(e, best.sp, best.a, best.b);
+    if (!best || best.b - best.a < left) notes.push(`${e.name} only gets ${((best ? best.b - best.a : 0) + fixed.reduce((t, [a, b]) => t + b - a, 0)) / 2}h: not enough open hours to top up their Munkastova shift.`);
+  }
   const assignPlan = (e, plan) => {
     plan.parts.forEach(p => place(e, p.sp, p.a, p.a + p.L));
     if (plan.tot < targetSlots(e, day)) notes.push(`${e.name} only gets ${plan.tot / 2}h: not enough open hours in their positions.`);
@@ -1049,6 +1073,32 @@ function generate(date, day) {
       // 2) a second / third person only where bookings need them; nobody beyond that
       capWin[r.sp] = [0, SLOTS];
       const shortNow = () => need[r.sp].some((x, k) => x - cover[r.sp][k] > 0);
+      // Munkastova team members first, in fixed shapes:
+      //   lunch only -> 12:00-15:00; dinner only -> 30 min before dinner opens to 2h after it closes;
+      //   both -> the headwaiter's hours (12:00-15:00 + 17:00-24:00)
+      const lunchP = h.periods.find(p => toSlot(p.open) < toSlot('15:00'));
+      const dinnerP = [...h.periods].reverse().find(p => toSlot(p.open) >= toSlot('15:00'));
+      const shortIn = (a, b) => { for (let k = Math.max(0, a); k < Math.min(SLOTS, b); k++) if (need[r.sp][k] - cover[r.sp][k] > 0) return true; return false; };
+      const L0 = toSlot(r.lunch[0]), L1 = endSlot(r.lunch[1]);
+      for (let guard = 0; guard < 4 && shortNow(); guard++) {
+        const sl = lunchP && shortIn(toSlot(lunchP.open), endSlot(lunchP.close) + 2);
+        const sd = dinnerP && shortIn(toSlot(dinnerP.open) - 1, endSlot(dinnerP.close) + 2);
+        if (!sl && !sd) break;
+        const D0 = dinnerP ? toSlot(dinnerP.open) - 1 : 0, D1 = dinnerP ? Math.min(SLOTS, endSlot(dinnerP.close) + 4) : 0;
+        const tm = free().filter(e => e.team === r.sp && can(e) && !oneBlock(e) && !notMine(e, r)).sort(prefer)
+          .find(e => restOk(e, sl ? L0 : D0));
+        if (!tm) break;
+        const T = targetSlots(tm, day);
+        if (sl && sd && r.dinner) {            // both services: the headwaiter's hours
+          const d0 = toSlot(r.dinner[0]), lunchLen = Math.min(L1 - L0, T);
+          place(tm, r.sp, L0, L0 + lunchLen, 'team', 'team');
+          if (T - lunchLen > 0) place(tm, r.sp, d0, Math.min(SLOTS, d0 + T - lunchLen), 'team', 'team');
+        } else if (sl) {                       // lunch only: 12:00-15:00, rest of the day elsewhere
+          place(tm, r.sp, L0, L1, 'team', 'team'); topUp(tm, [[L0, L1]]);
+        } else {                               // dinner only: 30 min before opening to 2h after closing
+          place(tm, r.sp, D0, D1, 'team', 'team'); topUp(tm, [[D0, D1]]);
+        }
+      }
       for (let guard = 0; guard < 4 && shortNow(); guard++) {
         let placed = false;
         for (const e of others()) {
@@ -1106,6 +1156,25 @@ function coverBreaks(date, day) {
       if (!ok) continue;
       if (earlier && a < earliestStart(e, date)) continue;
       const [w0, w1] = signWindow(e, date, day); if (a < w0 || z > w1) continue;
+      // the person's day must still follow the split rules (max 2 parts, gap >= the minimum)
+      if (!isBackup(e)) {
+        const iv = day.shifts.filter(x => x.emp === s.emp && x !== s).map(x => [x.start, x.end]);
+        iv.push(later ? [s.start + L, s.end] : [s.start, s.end - L], [a, z]); iv.sort((p, q) => p[0] - q[0]);
+        const m = []; iv.forEach(([p, q]) => { const l = m[m.length - 1]; if (l && p <= l[1]) l[1] = Math.max(l[1], q); else m.push([p, q]); });
+        if (m.length > 2 || m.some((x, i) => i && x[0] - m[i - 1][1] < minGapSlots())) continue;
+      }
+      { // after the move they must not work through a whole crew meal time without a break
+        const iv = day.shifts.filter(x => x.emp === s.emp && x !== s).map(x => [x.start, x.end]);
+        iv.push(later ? [s.start + L, s.end] : [s.start, s.end - L], [a, z]);
+        const works = k => iv.some(([p, q]) => k >= p && k < q);
+        const bad = (R().meals || []).some(mm => {
+          const w0 = toSlot(mm.from), w1 = endSlot(mm.to);
+          if (!iv.some(([p, q]) => p < w1 && q > w0)) return false;
+          let free = 0; for (let k = w0; k < w1; k++) { if (works(k)) free = 0; else if (++free >= Math.max(1, Math.ceil(R().mealBreakMin / 30))) return false; }
+          return !(day.breaks || []).some(x => x.emp === s.emp && x.slot >= w0 && x.slot < w1);
+        });
+        if (bad) continue;
+      }
       if (!best || score > best.score) best = {s, later, score};
     }
     if (!best) continue;
@@ -1251,7 +1320,7 @@ function renderDay() {
 
   const who = `<div class="card"><h3>Who's in <span class="muted">${day.working.length}</span>
     <span class="acts"><button data-act="all">All</button><button data-act="none">None</button><button data-act="copyprev" title="Copy from the same weekday last week">Last week</button></span></h3>
-    <div class="chips">${emps.map(e => `<button class="chip ${working.has(e.id) ? 'on' : ''}" data-act="toggle" data-id="${e.id}">${esc(e.name)}${e.headAt && spById(e.headAt) ? ` <small>★ ${esc(spById(e.headAt).name)}</small>` : ''}${isBackup(e) ? ` <small>${rankLabel(e)}</small>` : ''}</button>`).join('') || '<span class="muted">Add employees in Setup.</span>'}</div>
+    <div class="chips">${emps.map(e => `<button class="chip ${working.has(e.id) ? 'on' : ''}" data-act="toggle" data-id="${e.id}">${esc(e.name)}${e.headAt && spById(e.headAt) ? ` <small>★ ${esc(spById(e.headAt).name)}</small>` : ''}${isBackup(e) ? ` <small>${rankLabel(e)}</small>` : ''}${e.team ? ` <small>${esc((spById(e.team) || {}).name || e.team)} team</small>` : ''}</button>`).join('') || '<span class="muted">Add employees in Setup.</span>'}</div>
     ${day.working.length ? `<div class="signrow"><span class="muted">Signing off / on today (${R().signHours}h, in a row; ${(pc => [pc.arr ? `ship arrives ${pc.arr}, sign-on from then` : 'no arrival', pc.dep ? `departs ${pc.dep}, sign-off done by ${slotTime(toSlot(pc.dep) - Math.round((+R().signOffBeforeDepMin || 0) / 30))}` : 'no departure'].join('; '))(portFor(curDate, day))}). Tap to switch:</span>
       ${emps.filter(e => working.has(e.id)).map(e => { const sg = day.signing.includes(e.id), on = sg && day.signDir[e.id] === 'on';
         return `<button class="chip small ${sg ? 'on' : ''}" data-act="sign" data-id="${e.id}" title="Tap: signing off → signing on → neither">${esc(e.name)}${sg ? (on ? ' ⬆ on' : ' ⬇ off') : ''}</button>`; }).join('')}</div>` : ''}</div>`;
@@ -1518,15 +1587,17 @@ function renderSetup() {
 
   const empRows = emps.map(e => `<tr>
     <td><input type="text" value="${esc(e.name)}" data-ch="emp" data-id="${e.id}" data-f="name" style="width:120px"></td>
-    <td><select data-ch="emp" data-id="${e.id}" data-f="headAt"><option value="">—</option>${sps.map(s => `<option value="${s.id}" ${e.headAt === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></td>
+    <td><select data-ch="emp" data-id="${e.id}" data-f="headAt"><option value="">—</option>${sps.map(s => `<option value="${s.id}" ${e.headAt === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
+      <option value="team:munkastova" ${e.team === 'munkastova' ? 'selected' : ''}>Munkastova team</option></select></td>
     <td>${canWork(e)}</td>
     <td><button class="x" data-act="emp-del" data-id="${e.id}" title="Delete employee">✕</button></td></tr>`).join('');
 
   $('#view-setup').innerHTML = `
     <div class="card"><h3>Employees <span class="muted">${emps.length}</span></h3>
       <p class="help">Backup — Manager / Supervisor: only used to fill gaps nobody else can cover, at any sales point, up to ${R().dayHours}h a day, in pieces of any length (even 30 min) (supervisors first). If nothing is short, they aren't scheduled.</p>
+      <p class="help">Munkastova team: picked first when Munkastova needs a second or third person — lunch only 12:00–15:00, dinner only from 30 min before opening to 2h after closing, both services the headwaiter's hours.</p>
       <p class="help">★ Headwaiters are placed at their own sales point first. They're only moved elsewhere when their place is closed or already fully staffed.</p>
-      <div style="overflow-x:auto"><table><tr><th>Name</th><th>Headwaiter at</th><th>Can work at</th><th></th></tr>${empRows}</table></div>
+      <div style="overflow-x:auto"><table><tr><th>Name</th><th>Headwaiter at / team</th><th>Can work at</th><th></th></tr>${empRows}</table></div>
       <div class="addrow" style="margin-top:10px"><input id="newEmp" type="text" placeholder="New employee name"><button class="primary" data-act="emp-add">Add employee</button></div>
     </div>
     <div class="card"><h3>Work positions</h3>
@@ -1859,7 +1930,9 @@ document.addEventListener('change', e => {
   else if (ch === 'rule') { C.rules[f] = Math.max(['minRestH', 'signOffBeforeDepMin', 'maxBeforeOpenMin', 'minBreakBlockH'].includes(f) ? 0 : 0.5, parseFloat(el.value) || 0); }
   else if (ch === 'meal') { C.rules.meals[+el.dataset.i][f] = el.value; }
   else if (ch === 'sp') { const sp = spById(id); sp[f] = ['name', 'type', 'color'].includes(f) ? el.value : Math.max(0, parseFloat(el.value) || 0); }
-  else if (ch === 'emp') { const em = empById(id); em[f] = f === 'headAt' ? (el.value || null) : el.value; if (f === 'headAt' && em.headAt && !empMask({...em, headAt: null}, em.headAt).some(Boolean)) em.allowed.push(...C.positions.filter(p => p.sp === em.headAt).map(p => p.key)); }
+  else if (ch === 'emp' && f === 'headAt' && el.value.startsWith('team:')) { const em = empById(id), t = el.value.slice(5); em.headAt = null; em.team = t;
+    if (!empMask(em, t).some(Boolean)) em.allowed.push(...C.positions.filter(p => p.sp === t).map(p => p.key)); }
+  else if (ch === 'emp') { const em = empById(id); if (f === 'headAt') delete em.team; em[f] = f === 'headAt' ? (el.value || null) : el.value; if (f === 'headAt' && em.headAt && !empMask({...em, headAt: null}, em.headAt).some(Boolean)) em.allowed.push(...C.positions.filter(p => p.sp === em.headAt).map(p => p.key)); }
   else if (ch === 'emp-rank') { const em = empById(id); em[f] = el.checked; }
   else if (ch === 'emp-allowed') { const em = empById(id), k = el.dataset.p; em.allowed = el.checked ? [...new Set([...em.allowed, k])] : em.allowed.filter(x => x !== k); }
   else if (ch === 'pos') { const ps = C.positions[+el.dataset.i]; ps[f] = f === 'label' ? (el.value.trim() || ps.label) : el.value; }
