@@ -1043,12 +1043,33 @@ function generate(date, day) {
   const pickHolder = (r, cands) => { const h = holders.get(r); return h && h.streak < 7 ? cands.find(e => e.id === h.emp) : null; };
 
   const order = r => r.type === 'opener' ? (r.who === 'headwaiter' ? 0 : 2) : r.type === 'closer' ? 1 : r.type === 'cover' ? (r.window === 'lunch' ? 4 : 2.5) : r.type === 'team' ? 3 : 4; // Placeur after the bars' opening/closing shifts, before Munkastova
-  [...FR].sort((a, b) => order(a) - order(b)).forEach(r => {
+  // Night-shift people at a place without its own closing rule (Noatun): the closing shift, right after the bars' closers
+  const nightRules = [...new Set(pool.filter(e => e.night).map(e => e.night))].filter(id => spById(id) && !FR.some(r => r.type === 'closer' && r.sp === id)).map(id => ({type: 'night', sp: id}));
+  [...FR, ...nightRules].sort((a, b) => (a.type === 'night' ? 1.5 : order(a)) - (b.type === 'night' ? 1.5 : order(b))).forEach(r => {
     const sp = spById(r.sp); if (!sp) return;
     const cleaningDay = !isOpenDay(r.sp) && need[r.sp].some(x => x > 0);
     const fixedDay = r.type === 'team' && (r.fixedDays || []).find(x => x.season === seasonFor(date) && x.day === WD[wdIndex(date)]);
     if (!isOpenDay(r.sp) && !(r.type === 'team' && (cleaningDay || fixedDay))) return;
     const h = spHours(sp, date, day);
+    if (r.type === 'night') {
+      // one block ending when the place's last service is cleared, as long as the end of the night still needs people
+      let last = -1; need[r.sp].forEach((x, k) => { if (x > 0) last = k; });
+      if (last < 0) return;
+      const end = last + 1;
+      const ppl = free().filter(e => e.night === r.sp && !notMine(e, r)).sort((a, b) => (signing.has(a.id) - signing.has(b.id)) || flex(a) - flex(b));
+      for (const e of ppl) {
+        if (need[r.sp][last] - cover[r.sp][last] <= 0) break;
+        const T = targetSlots(e, day), [w0, w1] = signWindow(e, date, day), m = empMask(e, r.sp);
+        let run = last; while (run > 0 && need[r.sp][run - 1] > 0) run--;   // never across hours the place is closed
+        let a = Math.max(end - T, run, w0, earliestStart(e, date)); const b = Math.min(end, w1);
+        while (a < b && (!m[a] || need[r.sp][a] - cover[r.sp][a] <= 0)) a++; // only where they may work and are needed (e.g. one opener before a night opening)
+        let ok = b - a >= minPartSlots(); for (let k = a; k < b && ok; k++) if (!m[k]) ok = false;
+        if (!ok) { notes.push(`${e.name} (${sp.name} night shift) can't do the closing shift today.`); continue; }
+        place(e, r.sp, a, b, 'night', 'close');
+        if (b - a < T && !oneBlock(e)) topUp(e, [[a, b]]);              // the rest of their day as a second part
+      }
+      return;
+    }
     if (r.type === 'opener') {
       const fixedStart = r.startAt && r.startAt[WD[wdIndex(date)]];
       const open = firstOpenSlot(h), start = fixedStart ? toSlot(fixedStart) : Math.max(0, open - Math.round(r.beforeMin / 30));
@@ -1069,7 +1090,7 @@ function generate(date, day) {
       let cands = free().filter(base), e = pickHolder(r, cands);
       if (!e) {
         const pool2 = cands.filter(x => !notMine(x, r));
-        pool2.sort((a, b) => (signing.has(a.id) - signing.has(b.id)) || (!!a.headAt - !!b.headAt) * (r.who === 'any' ? 1 : 0) || flex(a) - flex(b));
+        pool2.sort((a, b) => (signing.has(a.id) - signing.has(b.id)) || (!!a.night - !!b.night) || (!!a.headAt - !!b.headAt) * (r.who === 'any' ? 1 : 0) || flex(a) - flex(b));
         e = pool2[0] || cands[0];
       }
       if (!e && r.who === 'headwaiter') { // no headwaiter in: anyone who may work there at that time
@@ -1085,10 +1106,12 @@ function generate(date, day) {
       const end = closerEnd(r, h), start = end - r.hours * 2;
       if (end < endSlot(r.end)) notes.push(`${sp.name} closes at ${slotTime(Math.max(...h.periods.map(p => endSlot(p.close))))} today, so the closing shift ends at ${slotTime(end)}.`);
       const cands = free().filter(e => empMask(e, r.sp)[end - 1] && restOk(e, start) && targetSlots(e, day) >= r.hours * 2 && !(homeOpen(e) && e.headAt !== r.sp));
-      let e = pickHolder(r, cands);
+      // this bar's night-shift people come first (yesterday's closer among them, if any)
+      const nightC = cands.filter(x => x.night === r.sp);
+      let e = nightC.length ? (pickHolder(r, nightC) || [...nightC].sort((a, b) => flex(a) - flex(b))[0]) : pickHolder(r, cands);
       if (!e) {
         const pool2 = cands.filter(x => !notMine(x, r));
-        pool2.sort((a, b) => ((b.headAt === r.sp) - (a.headAt === r.sp)) || (!!a.headAt - !!b.headAt) || flex(a) - flex(b));
+        pool2.sort((a, b) => ((b.headAt === r.sp) - (a.headAt === r.sp)) || (!!a.headAt - !!b.headAt) || (!!a.night - !!b.night) || flex(a) - flex(b));
         e = pool2[0] || cands[0];
       }
       holderNote(r, e, 'closed');
@@ -1562,7 +1585,7 @@ function renderDay() {
 
   const who = `<div class="card"><h3>Who's in <span class="muted">${day.working.length}</span>
     <span class="acts"><button data-act="all">All</button><button data-act="none">None</button><button data-act="copyprev" title="Copy from the same weekday last week">Last week</button></span></h3>
-    <div class="chips">${emps.map(e => `<button class="chip ${working.has(e.id) ? 'on' : ''}" data-act="toggle" data-id="${e.id}">${esc(e.name)}${e.headAt && spById(e.headAt) ? ` <small>★ ${esc(spById(e.headAt).name)}</small>` : ''}${isBackup(e) ? ` <small>${rankLabel(e)}</small>` : ''}${e.team ? ` <small>${esc((spById(e.team) || {}).name || e.team)} team</small>` : ''}</button>`).join('') || '<span class="muted">Add employees in Setup.</span>'}</div>
+    <div class="chips">${emps.map(e => `<button class="chip ${working.has(e.id) ? 'on' : ''}" data-act="toggle" data-id="${e.id}">${esc(e.name)}${e.headAt && spById(e.headAt) ? ` <small>★ ${esc(spById(e.headAt).name)}</small>` : ''}${isBackup(e) ? ` <small>${rankLabel(e)}</small>` : ''}${e.team ? ` <small>${esc((spById(e.team) || {}).name || e.team)} team</small>` : ''}${e.night ? ` <small>${esc((spById(e.night) || {}).name || e.night)} nightshift</small>` : ''}</button>`).join('') || '<span class="muted">Add employees in Setup.</span>'}</div>
     ${day.working.length ? `<div class="signrow"><span class="muted">Signing off / on today (${R().signHours}h, in a row; ${(pc => [pc.arr ? `ship arrives ${pc.arr}, sign-on from then` : 'no arrival', pc.dep ? `departs ${pc.dep}, sign-off done by ${slotTime(toSlot(pc.dep) - Math.round((+R().signOffBeforeDepMin || 0) / 30))}` : 'no departure'].join('; '))(portFor(curDate, day))}). Tap to switch:</span>
       ${emps.filter(e => working.has(e.id)).map(e => { const sg = day.signing.includes(e.id), on = sg && day.signDir[e.id] === 'on';
         return `<button class="chip small ${sg ? 'on' : ''}" data-act="sign" data-id="${e.id}" title="Tap: signing off → signing on → neither">${esc(e.name)}${sg ? (on ? ' ⬆ on' : ' ⬇ off') : ''}</button>`; }).join('')}</div>` : ''}</div>`;
@@ -1832,16 +1855,18 @@ function renderSetup() {
   const empRows = emps.map(e => `<tr>
     <td><input type="text" value="${esc(e.name)}" data-ch="emp" data-id="${e.id}" data-f="name" style="width:120px"></td>
     <td><select data-ch="emp" data-id="${e.id}" data-f="headAt"><option value="">—</option>${sps.map(s => `<option value="${s.id}" ${e.headAt === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
-      <option value="team:munkastova" ${e.team === 'munkastova' ? 'selected' : ''}>Munkastova team</option></select></td>
+      <option value="team:munkastova" ${e.team === 'munkastova' ? 'selected' : ''}>Munkastova team</option>
+      ${['laterna', 'undirhusid', 'noatun'].filter(spById).map(id => `<option value="night:${id}" ${e.night === id ? 'selected' : ''}>${esc(spById(id).name)} nightshift</option>`).join('')}</select></td>
     <td>${canWork(e)}</td>
     <td><button class="x" data-act="emp-del" data-id="${e.id}" title="Delete employee">✕</button></td></tr>`).join('');
 
   $('#view-setup').innerHTML = `
     <div class="card"><h3>Employees <span class="muted">${emps.length}</span></h3>
       <p class="help">Backup — Manager / Supervisor: only used to fill gaps nobody else can cover, at any sales point, up to ${R().dayHours}h a day, in pieces of any length (even 30 min) (supervisors first). If nothing is short, they aren't scheduled.</p>
+      <p class="help">Laterna / Undirhusid / Noatun nightshift: take priority for the night shift at their place — the closing shift at the bars, and the closing shift (10h ending when Noatun's last service is cleared) at Noatun.</p>
       <p class="help">Munkastova team: picked first when Munkastova needs a second or third person — lunch only 12:00–15:00, dinner only from 30 min before opening to 2h after closing, both services the headwaiter's hours.</p>
       <p class="help">★ Headwaiters are placed at their own sales point first. They're only moved elsewhere when their place is closed or already fully staffed.</p>
-      <div style="overflow-x:auto"><table><tr><th>Name</th><th>Headwaiter at / team</th><th>Can work at</th><th></th></tr>${empRows}</table></div>
+      <div style="overflow-x:auto"><table><tr><th>Name</th><th>Headwaiter at / team / nightshift</th><th>Can work at</th><th></th></tr>${empRows}</table></div>
       <div class="addrow" style="margin-top:10px"><input id="newEmp" type="text" placeholder="New employee name"><button class="primary" data-act="emp-add">Add employee</button></div>
     </div>
     <div class="card"><h3>Work positions</h3>
@@ -2187,9 +2212,11 @@ document.addEventListener('change', e => {
   else if (ch === 'rule') { C.rules[f] = Math.max(['minRestH', 'signOffBeforeDepMin', 'maxBeforeOpenMin', 'minBreakBlockH'].includes(f) ? 0 : 0.5, parseFloat(el.value) || 0); }
   else if (ch === 'meal') { C.rules.meals[+el.dataset.i][f] = el.value; }
   else if (ch === 'sp') { const sp = spById(id); sp[f] = ['name', 'type', 'color'].includes(f) ? el.value : Math.max(0, parseFloat(el.value) || 0); }
-  else if (ch === 'emp' && f === 'headAt' && el.value.startsWith('team:')) { const em = empById(id), t = el.value.slice(5); em.headAt = null; em.team = t;
+  else if (ch === 'emp' && f === 'headAt' && el.value.startsWith('night:')) { const em = empById(id), t = el.value.slice(6); em.headAt = null; delete em.team; em.night = t;
+    const k = t + '-night'; if (C.positions.some(p => p.key === k) && !em.allowed.includes(k)) em.allowed.push(k); }
+  else if (ch === 'emp' && f === 'headAt' && el.value.startsWith('team:')) { const em = empById(id), t = el.value.slice(5); em.headAt = null; delete em.night; em.team = t;
     if (!empMask(em, t).some(Boolean)) em.allowed.push(...C.positions.filter(p => p.sp === t).map(p => p.key)); }
-  else if (ch === 'emp') { const em = empById(id); if (f === 'headAt') delete em.team; em[f] = f === 'headAt' ? (el.value || null) : el.value; if (f === 'headAt' && em.headAt && !empMask({...em, headAt: null}, em.headAt).some(Boolean)) em.allowed.push(...C.positions.filter(p => p.sp === em.headAt).map(p => p.key)); }
+  else if (ch === 'emp') { const em = empById(id); if (f === 'headAt') { delete em.team; delete em.night; } em[f] = f === 'headAt' ? (el.value || null) : el.value; if (f === 'headAt' && em.headAt && !empMask({...em, headAt: null}, em.headAt).some(Boolean)) em.allowed.push(...C.positions.filter(p => p.sp === em.headAt).map(p => p.key)); }
   else if (ch === 'emp-rank') { const em = empById(id); em[f] = el.checked; }
   else if (ch === 'emp-allowed') { const em = empById(id), k = el.dataset.p; em.allowed = el.checked ? [...new Set([...em.allowed, k])] : em.allowed.filter(x => x !== k); }
   else if (ch === 'pos') { const ps = C.positions[+el.dataset.i]; ps[f] = f === 'label' ? (el.value.trim() || ps.label) : el.value; }
