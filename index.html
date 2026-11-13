@@ -1042,7 +1042,7 @@ function generate(date, day) {
   };
   const pickHolder = (r, cands) => { const h = holders.get(r); return h && h.streak < 7 ? cands.find(e => e.id === h.emp) : null; };
 
-  const order = r => r.type === 'opener' ? (r.who === 'headwaiter' ? 0 : 2) : r.type === 'closer' ? 1 : r.type === 'cover' ? (r.window === 'lunch' ? 4 : 0.5) : r.type === 'team' ? 3 : 4; // Placeur with the headwaiters (step 1)
+  const order = r => r.type === 'opener' ? (r.who === 'headwaiter' ? 0 : 2) : r.type === 'closer' ? 1 : r.type === 'cover' ? (r.window === 'lunch' ? 4 : 2.5) : r.type === 'team' ? 3 : 4; // Placeur after the bars' opening/closing shifts, before Munkastova
   [...FR].sort((a, b) => order(a) - order(b)).forEach(r => {
     const sp = spById(r.sp); if (!sp) return;
     const cleaningDay = !isOpenDay(r.sp) && need[r.sp].some(x => x > 0);
