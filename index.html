@@ -516,7 +516,7 @@ function computeNeed(date, day, planning = true) {
     if ((sp.paxRules || []).length) {
       const row = paxRow(sp, day.pax);
       PAX_SHIFTS.forEach(k => { const [a, b] = shiftWin(sp.id, k), mn = +row[k] || 0;
-        for (let s = a; s < b; s++) if (arr[s] > 0) arr[s] = Math.max(arr[s], mn); });
+        for (let s = a; s < b; s++) if (arr[s] > 0) arr[s] = Math.max(1, mn); }); // replaces 'staff whenever open'
     }
     // Port calls: extra staff before arrival and after departure
     const dr = cfg().dockRule;
@@ -532,9 +532,9 @@ function computeNeed(date, day, planning = true) {
       if (add) for (let s = toSlot(t.from); s < endSlot(t.to); s++) if (open[s]) arr[s] += add;
     });
     if (+sp.maxStaff > 0) for (let s = 0; s < SLOTS; s++) arr[s] = Math.min(arr[s], +sp.maxStaff);
-    // Staff meals: keep at least "mealCover" people working while one is on a break
-    if (+sp.mealCover > 0) (R().meals || []).forEach(m => {
-      for (let s = toSlot(m.from); s < endSlot(m.to); s++) if (arr[s] > 0) arr[s] = Math.max(arr[s], +sp.mealCover + (planning ? 1 : 0));
+    // Staff meals: plan one extra person so breaks never leave the place below its minimum
+    if (+sp.mealCover > 0 && planning) (R().meals || []).forEach(m => {
+      for (let s = toSlot(m.from); s < endSlot(m.to); s++) if (arr[s] > 0) arr[s] += 1;
     });
   }
   return need;
@@ -577,7 +577,7 @@ function workBlocks(day, empId) {
 // Meal breaks: anyone working through a meal window gets a break inside it, at the slot
 // where their sales point can best spare them. Breaks count as part of the shift.
 function placeBreaks(date, day) {
-  const need = computeNeed(date, day), notes = [];
+  const need = computeNeed(date, day), floor = computeNeed(date, day, false), notes = [];
   day.breaks = [];
   const cover = computeCover(day);
   const bl = Math.max(1, Math.ceil(R().mealBreakMin / 30));
@@ -595,7 +595,7 @@ function placeBreaks(date, day) {
         let fits = true, spare = 0;
         for (let j = k; j < k + bl; j++) { const t = at(j); if (!t || t.sp !== s.sp) fits = false; else spare += cover[s.sp][j] - need[s.sp][j]; }
         const mc = +(spById(s.sp) || {}).mealCover || 0;
-        if (fits && mc) for (let j = k; j < k + bl; j++) if (cover[s.sp][j] - 1 < mc) spare -= 100; // would leave fewer than mealCover working
+        if (fits && mc) for (let j = k; j < k + bl; j++) if (cover[s.sp][j] - 1 < floor[s.sp][j]) spare -= 100; // would leave it below its minimum
         if (fits && (!bestB || spare > bestB.spare)) bestB = {slot: k, sp: s.sp, spare};
       }
       if (!bestB) { notes.push(`${e.name} has no room for a ${m.label.toLowerCase()} break.`); return; }
@@ -774,6 +774,9 @@ function generate(date, day) {
   const notMine = (e, r) => reserved.has(e.id) && reserved.get(e.id) !== r;
   const firstOpenSlot = h => Math.min(...h.periods.map(p => toSlot(p.open)));
   const closerOf = spId => FR.find(r => r.type === 'closer' && r.sp === spId && r.alone);
+  // closing shift ends at the rule's time, or earlier if the place closes earlier (plus "stay after closing")
+  const closerEnd = (r, h) => { const sp = spById(r.sp), last = Math.max(...h.periods.map(p => endSlot(p.close)));
+    return Math.min(endSlot(r.end), Math.min(SLOTS, last + Math.ceil((+sp.closeMin || 0) / 30))); };
   const holderNote = (r, e, what) => {
     const h = holders.get(r);
     if (h && h.streak < 7 && h.emp !== (e && e.id)) notes.push(`${nm(h.emp)} has ${what} ${spById(r.sp).name} ${h.streak} day${h.streak > 1 ? 's' : ''} in a row but can't today${e ? `; ${e.name} does it instead` : ''}.`);
@@ -792,7 +795,7 @@ function generate(date, day) {
       if (!fixedStart && open - Math.round(r.beforeMin / 30) < 0) notes.push(`${sp.name} opening shift would start before 05:00; it starts at 05:00 instead.`);
       // evening opening: the closing shift covers the night alone, no separate opening shift
       const cr = closerOf(r.sp);
-      if (!fixedStart && cr && start + r.hours * 2 > endSlot(cr.end) - cr.hours * 2 + 8) { notes.push(`${sp.name} opens in the evening today, so the closing shift covers it alone.`); return; }
+      if (!fixedStart && cr && start + r.hours * 2 > closerEnd(cr, h) - cr.hours * 2 + 8) { notes.push(`${sp.name} opens in the evening today, so the closing shift covers it alone.`); return; }
       const base = e => restOk(e, start) && inWindow(e, start, start + Math.min(r.hours * 2, targetSlots(e, day))) && (r.who === 'headwaiter' ? e.headAt === r.sp : empMask(e, r.sp)[start] && !(homeOpen(e) && e.headAt !== r.sp));
       let cands = free().filter(base), e = pickHolder(r, cands);
       if (!e) {
@@ -809,7 +812,8 @@ function generate(date, day) {
       place(e, r.sp, start, start + Math.min(r.hours * 2, targetSlots(e, day)), 'opening', 'open');
       const ho = holders.get(r); if (ho && ho.streak < 7 && ho.emp !== e.id) shifts[shifts.length - 1].sub = true;
     } else if (r.type === 'closer') {
-      const end = endSlot(r.end), start = end - r.hours * 2;
+      const end = closerEnd(r, h), start = end - r.hours * 2;
+      if (end < endSlot(r.end)) notes.push(`${sp.name} closes at ${slotTime(Math.max(...h.periods.map(p => endSlot(p.close))))} today, so the closing shift ends at ${slotTime(end)}.`);
       const cands = free().filter(e => empMask(e, r.sp)[end - 1] && restOk(e, start) && targetSlots(e, day) >= r.hours * 2 && !(homeOpen(e) && e.headAt !== r.sp));
       let e = pickHolder(r, cands);
       if (!e) {
@@ -821,7 +825,7 @@ function generate(date, day) {
       if (!e) { notes.push(`Nobody available to close ${sp.name} (${slotTime(start)}–${r.end}). Tick more people in, or give someone the ${sp.name} night position.`); return; }
       place(e, r.sp, start, end, 'closing', 'close');
       const hc = holders.get(r); if (hc && hc.streak < 7 && hc.emp !== e.id) shifts[shifts.length - 1].sub = true;
-      if (r.alone) capWin[r.sp] = [start, end];
+      if (r.alone) capWin[r.sp] = [Math.max(0, start), end];
     } else if (r.type === 'cover') {
       // mandatory: every open half hour covered, nobody beyond what's needed
       capWin[r.sp] = [0, SLOTS];
@@ -1237,8 +1241,8 @@ function renderSetup() {
       <button class="x" data-act="sp-del" data-id="${sp.id}" title="Delete sales point">✕</button>
     </div>
     <div class="fields">
-      <label>Staff whenever open <input type="number" min="1" value="${sp.baseStaff}" data-ch="sp" data-id="${sp.id}" data-f="baseStaff"></label>
-      <label>Keep working during staff meals (0 = off) <input type="number" min="0" value="${sp.mealCover || 0}" data-ch="sp" data-id="${sp.id}" data-f="mealCover"></label>
+      ${(sp.paxRules || []).length ? `<label>Staff whenever open <span class="muted" style="font-size:12px">set by the passengers table</span></label>` : `<label>Staff whenever open <input type="number" min="1" value="${sp.baseStaff}" data-ch="sp" data-id="${sp.id}" data-f="baseStaff"></label>`}
+      <label>Extra person during staff meals (breaks) <input type="checkbox" style="width:auto" ${+sp.mealCover > 0 ? 'checked' : ''} data-ch="sp-flag" data-id="${sp.id}" data-f="mealCover"></label>
       <label>Most staff at once (0 = no limit) <input type="number" min="0" value="${sp.maxStaff || 0}" data-ch="sp" data-id="${sp.id}" data-f="maxStaff"></label>
       <label>Arrive before opening (min) <input type="number" min="0" step="30" value="${sp.prepMin}" data-ch="sp" data-id="${sp.id}" data-f="prepMin"></label>
       <label>Stay after closing (min) <input type="number" min="0" step="30" value="${sp.closeMin}" data-ch="sp" data-id="${sp.id}" data-f="closeMin"></label>
@@ -1521,6 +1525,7 @@ document.addEventListener('change', e => {
   const C = cfg(), id = el.dataset.id, f = el.dataset.f;
   if (ch === 'date') { if (el.value) setDate(el.value); return; }
   if (ch === 'book') return; // handled on 'input' below, without redrawing the page
+  if (ch === 'sp-flag') { spById(id)[f] = el.checked ? 1 : 0; saveConfig(); scheduleRender(); return; }
   if (ch === 'paxr') { const r = spById(id).paxRules[+el.dataset.i]; r[f] = Math.max(0, parseInt(el.value, 10) || 0); saveConfig(); scheduleRender(); return; }
   if (ch === 'pax') return; // saved on input
   if (ch === 'port') { const day = getDay(curDate); day.port = {...portFor(curDate, day), [f]: el.value || null}; saveDay(curDate); scheduleRender(); return; }
