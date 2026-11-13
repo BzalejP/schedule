@@ -112,6 +112,7 @@ th{color:var(--muted);font-weight:500;font-size:12px}
 .allowed{display:flex;flex-wrap:wrap;gap:4px 10px}
 .pgrp{display:inline-flex;gap:8px;align-items:center;padding:2px 8px;border:1px solid var(--line);border-radius:7px}
 .pgrp b{font-size:12px;font-weight:600}
+.pgrp.backup{background:var(--chip)}
 .allowed label{font-size:12px;display:flex;gap:3px;align-items:center;white-space:nowrap}
 .help{font-size:13px;color:var(--muted);margin:0 0 12px}
 pre.code{background:var(--chip);padding:10px;border-radius:8px;overflow:auto;font-size:12px}
@@ -136,7 +137,7 @@ dialog .row label{flex:1}
 .sgrid thead th.num{font-size:12px;line-height:1.1}
 .sgrid thead th.corner{background:#d9d9d9}
 .sgrid th.name{text-align:left;font-weight:400;color:#1a1a1a;padding:0 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:sticky;left:0;z-index:1}
-.sgrid .star{color:#c55a11}.sgrid .tag{font-size:10px;background:#ffe699;border-radius:3px;padding:0 3px}
+.sgrid .star{color:#c55a11}.sgrid .tag.mgr{background:#d9d9d9}.sgrid .tag{font-size:10px;background:#ffe699;border-radius:3px;padding:0 3px}
 .sgrid td[data-act]{cursor:pointer}
 .sgrid td[data-act]:hover{outline:2px solid #1a1a1a;outline-offset:-2px}
 .sgrid td.num{text-align:center;font-weight:700}
@@ -588,6 +589,10 @@ function placeBreaks(date, day) {
 }
 
 // Rule check for the day as it stands (also after hand edits).
+// Managers and supervisors are backups: only used to fill gaps, anywhere, up to their daily hours.
+const isBackup = e => !!(e && (e.manager || e.supervisor));
+const rankLabel = e => e.manager && e.supervisor ? 'Manager/Supervisor' : e.manager ? 'Manager' : e.supervisor ? 'Supervisor' : '';
+
 // Signing off: leaves when the ship docks, so works before arrival. Signing on: boards at arrival, works after.
 function signWindow(e, date, day) {
   if (!(day.signing || []).includes(e.id)) return [0, SLOTS];
@@ -608,11 +613,12 @@ function checkRules(date, day) {
       if (bad && arr) out.push(`${e.name} ${signLabel(e, day)} at ${arr} arrival, but works ${slotTime(bad.start)}–${slotTime(bad.end)}.`);
     }
     const total = blocks.reduce((a, b) => a + b.end - b.start, 0), want = targetSlots(e, day);
-    if (total !== want) out.push(`${e.name} works ${total / 2}h today (should be ${want / 2}h${(day.signing || []).includes(e.id) ? ', ' + signLabel(e, day).replace('signs', 'signing') : ''}).`);
-    if (blocks.length > 2) out.push(`${e.name}'s day is split into ${blocks.length} parts (max 2).`);
+    if (isBackup(e)) { if (total > want) out.push(`${e.name} (${rankLabel(e).toLowerCase()}) works ${total / 2}h today (maximum ${want / 2}h).`); }
+    else if (total !== want) out.push(`${e.name} works ${total / 2}h today (should be ${want / 2}h${(day.signing || []).includes(e.id) ? ', ' + signLabel(e, day).replace('signs', 'signing') : ''}).`);
+    if (blocks.length > 2 && !isBackup(e)) out.push(`${e.name}'s day is split into ${blocks.length} parts (max 2).`);
     for (let i = 1; i < blocks.length; i++) {
       const gap = blocks[i].start - blocks[i - 1].end;
-      if (gap < minGapSlots()) out.push(`${e.name} has only a ${gap / 2}h break between shifts at ${slotTime(blocks[i - 1].end)}; it must be at least ${R().minSplitH}h.`);
+      if (gap < minGapSlots() && !isBackup(e)) out.push(`${e.name} has only a ${gap / 2}h break between shifts at ${slotTime(blocks[i - 1].end)}; it must be at least ${R().minSplitH}h.`);
     }
     const early = earliestStart(e, date);
     if (blocks[0].start < early) out.push(`${e.name} gets only ${(blocks[0].start + Math.round(R().minRestH * 2) - early) / 2}h rest after yesterday (minimum ${R().minRestH}h).`);
@@ -655,7 +661,8 @@ function generate(date, day) {
   const {salesPoints: sps, employees} = cfg();
   const need = computeNeed(date, day);
   const cover = {}; sps.forEach(sp => cover[sp.id] = new Array(SLOTS).fill(0));
-  const pool = employees.filter(e => day.working.includes(e.id));
+  const pool = employees.filter(e => day.working.includes(e.id) && !isBackup(e));
+  const backups = employees.filter(e => day.working.includes(e.id) && isBackup(e));
   const used = new Set(), shifts = [], notes = [];
   const minPart = minPartSlots(), minGap = minGapSlots();
   // Within the generator, a signing person may only work before (off) / after (on) the ship's arrival.
@@ -860,6 +867,49 @@ function generate(date, day) {
     if (!pick) break;
     assignPlan(pick.e, pick.p);
   }
+  // 3) Last resort: managers/supervisors fill what is still short (supervisors first), up to their hours
+  if (backups.length) {
+    const floor = computeNeed(date, day, false);
+    const isShort = (sp, k) => floor[sp][k] - cover[sp][k] > 0;
+    const order = [...backups].sort((a, b) => (!!b.supervisor - !!a.supervisor) || (!!a.manager - !!b.manager));
+    const blocksOf = id => { const out = []; shifts.filter(x => x.emp === id).map(x => ({start: x.start, end: x.end})).sort((a, b) => a.start - b.start)
+      .forEach(b => { const l = out[out.length - 1]; if (l && b.start <= l.end) l.end = Math.max(l.end, b.end); else out.push({...b}); }); return out; };
+    const fits = (e, a, b) => {
+      const [w0, w1] = signWindow(e, date, day);
+      if (a < w0 || b > w1 || a < earliestStart(e, date) || a < 0 || b > SLOTS) return false;
+      if (shifts.some(x => x.emp === e.id && x.start < b && x.end > a)) return false;
+      const bl = blocksOf(e.id); bl.push({start: a, end: b}); bl.sort((x, y) => x.start - y.start);
+      const m = []; bl.forEach(x => { const l = m[m.length - 1]; if (l && x.start <= l.end) l.end = Math.max(l.end, x.end); else m.push({...x}); });
+      return m.reduce((t, x) => t + x.end - x.start, 0) <= targetSlots(e, day); // no limit on parts or gaps for managers/supervisors
+    };
+    for (let guard = 0; guard < 80; guard++) {
+      const runs = [];
+      sps.forEach(sp => { let k = 0; while (k < SLOTS) { if (!isShort(sp.id, k)) { k++; continue; } let e = k; while (e < SLOTS && isShort(sp.id, e)) e++; runs.push({sp: sp.id, s: k, e}); k = e; } });
+      if (!runs.length) break;
+      runs.sort((a, b) => (b.e - b.s) - (a.e - a.s));
+      let done = false;
+      for (const r of runs) {
+        for (const e of order) {
+          const used = blocksOf(e.id).reduce((t, x) => t + x.end - x.start, 0), left = targetSlots(e, day) - used;
+          const L = Math.min(Math.max(r.e - r.s, minPart), left); if (L < 1) continue;
+          // try: start of the gap, end of the gap, and joining on to a shift they already have there
+          const tries = [[r.s, r.s + L], [r.e - L, r.e], [r.s - (L - (r.e - r.s)), r.e]];
+          const t = tries.find(([a, b]) => b - a === L && fits(e, a, b)) ||
+            [[r.s, Math.min(r.e, r.s + left)]].find(([a, b]) => b - a >= 1 && shifts.some(x => x.emp === e.id && x.sp === r.sp && (x.end === a || x.start === b)) && fits(e, a, b));
+          if (!t) continue;
+          place(e, r.sp, t[0], t[1], 'backup');
+          done = true; break;
+        }
+        if (done) break;
+      }
+      if (!done) break;
+    }
+    // merge touching backup shifts at the same place
+    backups.forEach(e => {
+      const mine = shifts.filter(x => x.emp === e.id && x.fixed === 'backup').sort((a, b) => a.start - b.start);
+      for (let i = 1; i < mine.length; i++) if (mine[i].sp === mine[i - 1].sp && mine[i].start === mine[i - 1].end) { mine[i - 1].end = mine[i].end; shifts.splice(shifts.indexOf(mine[i]), 1); mine.splice(i--, 1); }
+    });
+  }
   day.genNotes = notes;
   day.prevSig = shiftSig(addDays(date, -1));
   return shifts;
@@ -951,7 +1001,7 @@ function renderDay() {
 
   const who = `<div class="card"><h3>Who's in <span class="muted">${day.working.length}</span>
     <span class="acts"><button data-act="all">All</button><button data-act="none">None</button><button data-act="copyprev" title="Copy from the same weekday last week">Last week</button></span></h3>
-    <div class="chips">${emps.map(e => `<button class="chip ${working.has(e.id) ? 'on' : ''}" data-act="toggle" data-id="${e.id}">${esc(e.name)}${e.headAt && spById(e.headAt) ? ` <small>★ ${esc(spById(e.headAt).name)}</small>` : ''}</button>`).join('') || '<span class="muted">Add employees in Setup.</span>'}</div>
+    <div class="chips">${emps.map(e => `<button class="chip ${working.has(e.id) ? 'on' : ''}" data-act="toggle" data-id="${e.id}">${esc(e.name)}${e.headAt && spById(e.headAt) ? ` <small>★ ${esc(spById(e.headAt).name)}</small>` : ''}${isBackup(e) ? ` <small>${rankLabel(e)}</small>` : ''}</button>`).join('') || '<span class="muted">Add employees in Setup.</span>'}</div>
     ${day.working.length ? `<div class="signrow"><span class="muted">Signing off / on today (${R().signHours}h, in a row${portFor(curDate, day).arr ? `; ship arrives ${portFor(curDate, day).arr}` : '; no port arrival today'}). Tap to switch:</span>
       ${emps.filter(e => working.has(e.id)).map(e => { const sg = day.signing.includes(e.id), on = sg && day.signDir[e.id] === 'on';
         return `<button class="chip small ${sg ? 'on' : ''}" data-act="sign" data-id="${e.id}" title="Tap: signing off → signing on → neither">${esc(e.name)}${sg ? (on ? ' ⬆ on' : ' ⬇ off') : ''}</button>`; }).join('')}</div>` : ''}</div>`;
@@ -1022,7 +1072,9 @@ function dayResultsHTML(day) {
       alerts.push(['bad', `<b>${esc(sp.name)}</b> is short ${g.max} ${g.max > 1 ? 'people' : 'person'} ${slotTime(g.s)}–${slotTime(g.e)}`]));
   });
   if (day.shifts.length) {
-    const idle = emps.filter(e => working.has(e.id) && !day.shifts.some(s => s.emp === e.id));
+    const idle = emps.filter(e => working.has(e.id) && !isBackup(e) && !day.shifts.some(s => s.emp === e.id));
+    const usedB = emps.filter(e => isBackup(e) && day.shifts.some(s => s.emp === e.id));
+    if (usedB.length) alerts.push(['info', `Gaps filled by managers/supervisors: ${usedB.map(e => `${esc(e.name)} (${day.shifts.filter(s => s.emp === e.id).sort((a, b) => a.start - b.start).map(s => `${esc(spById(s.sp).name)} ${slotTime(s.start)}–${slotTime(s.end)}`).join(', ')})`).join('; ')}`]);
     if (idle.length) alerts.push(['info', `In today but not on the schedule: ${idle.map(e => esc(e.name)).join(', ')}`]);
     const notIn = [...new Set(day.shifts.filter(s => !working.has(s.emp)).map(s => s.emp))].map(empById).filter(Boolean);
     if (notIn.length) alerts.push(['warn', `On the schedule but not ticked in: ${notIn.map(e => esc(e.name)).join(', ')}`]);
@@ -1058,7 +1110,7 @@ function gridHTML(day, need, cover, forPrint) {
     const mine = day.shifts.filter(s => s.emp === e.id);
     const total = workBlocks(day, e.id).reduce((a, b) => a + b.end - b.start, 0) / 2;
     const want = targetSlots(e, day) / 2;
-    h += `<tr><th class="name">${esc(e.name)}${e.headAt ? ' <span class="star">★</span>' : ''}${(day.signing || []).includes(e.id) ? ` <span class="tag">${(day.signDir || {})[e.id] === 'on' ? 'sign on' : 'sign off'}</span>` : ''}</th>`;
+    h += `<tr><th class="name">${esc(e.name)}${e.headAt ? ' <span class="star">★</span>' : ''}${isBackup(e) ? ` <span class="tag mgr">${e.manager ? 'mgr' : 'sup'}</span>` : ''}${(day.signing || []).includes(e.id) ? ` <span class="tag">${(day.signDir || {})[e.id] === 'on' ? 'sign on' : 'sign off'}</span>` : ''}</th>`;
     for (let k = 0; k < SLOTS; k++) {
       const s = mine.find(x => k >= x.start && k < x.end), b = brk.get(e.id + ':' + k), sp = s && spById(s.sp);
       const bg = b ? BREAK_COLOR : sp ? sp.color : '';
@@ -1187,7 +1239,7 @@ function renderSetup() {
     const box = (p, text) => `<label><input type="checkbox" ${e.allowed.includes(p.key) ? 'checked' : ''} data-ch="emp-allowed" data-id="${e.id}" data-p="${p.key}">${esc(text)}</label>`;
     return ps.length === 1 ? box(ps[0], ps[0].label)
       : `<span class="pgrp"><b>${esc(sp.name)}</b>${ps.map(p => box(p, shortLabel(p, sp))).join('')}</span>`;
-  }).join('')}</div>`;
+  }).join('')}<span class="pgrp backup"><b>Backup</b>${['manager', 'supervisor'].map(k => `<label><input type="checkbox" ${e[k] ? 'checked' : ''} data-ch="emp-rank" data-id="${e.id}" data-f="${k}">${k[0].toUpperCase() + k.slice(1)}</label>`).join('')}</span></div>`;
   const posRows = positions.map((p, i) => `<tr>
     <td><input type="text" value="${esc(p.label)}" data-ch="pos" data-i="${i}" data-f="label" style="width:190px"></td>
     <td class="muted">${esc((spById(p.sp) || {}).name || '?')}</td>
@@ -1201,6 +1253,7 @@ function renderSetup() {
 
   $('#view-setup').innerHTML = `
     <div class="card"><h3>Employees <span class="muted">${emps.length}</span></h3>
+      <p class="help">Backup — Manager / Supervisor: only used to fill gaps nobody else can cover, at any sales point, up to ${R().dayHours}h a day in any number of parts (supervisors first). If nothing is short, they aren't scheduled.</p>
       <p class="help">★ Headwaiters are placed at their own sales point first. They're only moved elsewhere when their place is closed or already fully staffed.</p>
       <div style="overflow-x:auto"><table><tr><th>Name</th><th>Headwaiter at</th><th>Can work at</th><th></th></tr>${empRows}</table></div>
       <div class="addrow" style="margin-top:10px"><input id="newEmp" type="text" placeholder="New employee name"><button class="primary" data-act="emp-add">Add employee</button></div>
@@ -1438,6 +1491,7 @@ document.addEventListener('change', e => {
   else if (ch === 'meal') { C.rules.meals[+el.dataset.i][f] = el.value; }
   else if (ch === 'sp') { const sp = spById(id); sp[f] = ['name', 'type', 'color'].includes(f) ? el.value : Math.max(0, parseFloat(el.value) || 0); }
   else if (ch === 'emp') { const em = empById(id); em[f] = f === 'headAt' ? (el.value || null) : el.value; if (f === 'headAt' && em.headAt && !empMask({...em, headAt: null}, em.headAt).some(Boolean)) em.allowed.push(...C.positions.filter(p => p.sp === em.headAt).map(p => p.key)); }
+  else if (ch === 'emp-rank') { const em = empById(id); em[f] = el.checked; }
   else if (ch === 'emp-allowed') { const em = empById(id), k = el.dataset.p; em.allowed = el.checked ? [...new Set([...em.allowed, k])] : em.allowed.filter(x => x !== k); }
   else if (ch === 'pos') { const ps = C.positions[+el.dataset.i]; ps[f] = f === 'label' ? (el.value.trim() || ps.label) : el.value; }
   else return;
