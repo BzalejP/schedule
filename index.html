@@ -44,6 +44,10 @@ main{padding:16px;max-width:1500px;margin:0 auto}
 .chip small{opacity:.8}
 .hrow{display:flex;align-items:center;gap:6px;padding:4px 0;flex-wrap:wrap}
 .hrow{flex-wrap:nowrap}
+.paxrow{margin:0 0 10px;padding-bottom:10px;border-bottom:1px dashed var(--line)}
+.paxrow label{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px}
+.paxrow input{width:110px;font-size:15px}
+.paxrow .muted{font-size:12px;margin-top:4px}
 .bookrow{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding-left:16px}
 .book{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--muted)}
 .book input{width:100%;font-size:15px;color:var(--ink)}
@@ -321,6 +325,13 @@ const DEFAULT_FIXED_RULES = [
 // M/F Norröna port calls, ship time (from the shoulder-season sheet). null = no arrival/departure that day.
 const DEFAULT_PORT = {mon: {arr: null, dep: null}, tue: {arr: '07:30', dep: '13:00'}, wed: {arr: '10:00', dep: null},
   thu: {arr: null, dep: '21:00'}, fri: {arr: '16:00', dep: '20:00'}, sat: {arr: null, dep: null}, sun: {arr: '10:00', dep: '14:00'}};
+// Passengers -> minimum staff per shift (morning / day / night). Starting values; edit in Setup.
+const PAX_SHIFTS = ['morning', 'day', 'night'];
+const DEFAULT_PAX = {
+  noatun:     [{from: 0, morning: 2, day: 2, night: 2}, {from: 500, morning: 3, day: 3, night: 3}, {from: 1000, morning: 4, day: 4, night: 4}],
+  laterna:    [{from: 0, morning: 1, day: 1, night: 1}, {from: 500, morning: 1, day: 2, night: 2}, {from: 1000, morning: 2, day: 2, night: 3}],
+  undirhusid: [{from: 0, morning: 1, day: 1, night: 1}, {from: 500, morning: 1, day: 1, night: 2}, {from: 1000, morning: 1, day: 2, night: 2}]
+};
 const DEFAULT_DOCK_RULE = {sp: 'laterna', beforeArrMin: 60, afterDepMin: 120, extra: 1};
 function ruleText(r) {
   const n = esc((spById(r.sp) || {}).name || r.sp), wk = r.keepWeek ? ' Same person for at least a week in a row.' : '';
@@ -362,6 +373,7 @@ function ensureConfig(c) {
     const m = c.salesPoints.find(sp => sp.id === 'munkastova'); if (m) { m.baseStaff = 1; m.prepMin = 0; m.maxStaff = 3; }
     c.rulesVersion = 4;
   }
+  if ((c.paxVersion || 0) < 1) { c.salesPoints.forEach(sp => { if (DEFAULT_PAX[sp.id] && !sp.paxRules) sp.paxRules = clone(DEFAULT_PAX[sp.id]); }); c.paxVersion = 1; changed = true; }
   if (c.rulesVersion < 6) {
     c.rules ||= {}; delete c.rules.splitOverH; c.rules.minSplitH = 2;
     const n = c.salesPoints.find(sp => sp.id === 'noatun'); if (n) n.mealCover = 2;
@@ -500,6 +512,12 @@ function computeNeed(date, day, planning = true) {
       const b4 = mp ? Math.ceil((+mp.before || 0) / 30) : pre, af = mp ? Math.ceil((+mp.after || 0) / 30) : post;
       for (let s = Math.max(0, o - b4); s < Math.min(SLOTS, c + af); s++) arr[s] = base;
     });
+    // Passengers: minimum staff per shift while open
+    if ((sp.paxRules || []).length) {
+      const row = paxRow(sp, day.pax);
+      PAX_SHIFTS.forEach(k => { const [a, b] = shiftWin(sp.id, k), mn = +row[k] || 0;
+        for (let s = a; s < b; s++) if (arr[s] > 0) arr[s] = Math.max(arr[s], mn); });
+    }
     // Port calls: extra staff before arrival and after departure
     const dr = cfg().dockRule;
     if (dr && dr.sp === sp.id && +dr.extra > 0) {
@@ -589,6 +607,13 @@ function placeBreaks(date, day) {
 }
 
 // Rule check for the day as it stands (also after hand edits).
+const paxRow = (sp, pax) => { const rows = [...(sp.paxRules || [])].sort((a, b) => a.from - b.from); let r = rows[0] || null; rows.forEach(x => { if ((+pax || 0) >= x.from) r = x; }); return r; };
+const shiftWin = (spId, shift) => { const p = (cfg().positions || []).find(x => x.key === spId + '-' + shift);
+  return p ? [toSlot(p.from), endSlot(p.to)] : shift === 'morning' ? [0, toSlot('12:00')] : shift === 'day' ? [toSlot('12:00'), toSlot('18:00')] : [toSlot('18:00'), SLOTS]; };
+function paxSummary(day) {
+  return cfg().salesPoints.filter(sp => (sp.paxRules || []).length).map(sp => { const r = paxRow(sp, day.pax); return `${esc(sp.name)} ${PAX_SHIFTS.map(k => r[k]).join('/')}`; }).join(' · ');
+}
+
 // Managers and supervisors are backups: only used to fill gaps, anywhere, up to their daily hours.
 const isBackup = e => !!(e && (e.manager || e.supervisor));
 const rankLabel = e => e.manager && e.supervisor ? 'Manager/Supervisor' : e.manager ? 'Manager' : e.supervisor ? 'Supervisor' : '';
@@ -696,24 +721,27 @@ function generate(date, day) {
       if (home) { const busy = n.map((x, i) => x > 0 ? i : -1).filter(i => i >= 0); if (busy.length) { lo = Math.max(0, busy[0] - ext); hi = Math.min(SLOTS, busy[busy.length - 1] + 1 + ext); } }
       const ok = k => k >= E && m[k] && (home ? k >= lo && k < hi : n[k] > 0) && !(cw && k >= cw[0] && k < cw[1] && n[k] - c[k] <= 0);
       const pre = [0]; for (let k = 0; k < SLOTS; k++) pre.push(pre[k] + (ok(k) && n[k] - c[k] > 0 ? w : 0));
+      // how overstaffed a slot would become: used to spread extra people instead of piling them up
+      const opre = [0]; for (let k = 0; k < SLOTS; k++) opre.push(opre[k] + (ok(k) && n[k] - c[k] <= 0 ? c[k] - n[k] + 1 : 0));
       const run = new Array(SLOTS + 1).fill(0); for (let k = SLOTS - 1; k >= 0; k--) run[k] = ok(k) ? run[k + 1] + 1 : 0;
-      return {sp: sp.id, pre, run};
+      return {sp: sp.id, pre, opre, run};
     });
-    const gain = (I, a, L) => I.run[a] >= L ? I.pre[a + L] - I.pre[a] : -1;
+    // value of a block: covering short half hours first, then the least overstaffing
+    const gain = (I, a, L) => I.run[a] >= L ? (I.pre[a + L] - I.pre[a]) * 100000 - (I.opre[a + L] - I.opre[a]) * 10 : -Infinity;
     for (let tot = T; tot >= Math.min(minPart, T); tot--) {
       let bp = null;
       const consider = (score, parts) => { if (mustHome && !parts.some(x => x.sp === homeSp && x.L > 0)) return; if (!bp || score > bp.score) bp = {score, parts, tot}; };
-      for (const I of info) for (let a = 0; a + tot <= SLOTS; a++) { const g = gain(I, a, tot); if (g >= 0) consider(g * 10 + 1, [{sp: I.sp, a, L: tot}]); }
+      for (const I of info) for (let a = 0; a + tot <= SLOTS; a++) { const g = gain(I, a, tot); if (g > -Infinity) consider(g + 1, [{sp: I.sp, a, L: tot}]); }
       for (let L1 = minPart; !oneBlock(e) && L1 <= tot - minPart; L1++) {
         const L2 = tot - L1, suf = new Array(SLOTS + 1).fill(null);
         for (let s = SLOTS - 1; s >= 0; s--) {
           suf[s] = suf[s + 1];
-          for (const I of info) { const g = gain(I, s, L2); if (g >= 0 && (!suf[s] || g > suf[s].g)) suf[s] = {g, sp: I.sp, a: s}; }
+          for (const I of info) { const g = gain(I, s, L2); if (g > -Infinity && (!suf[s] || g > suf[s].g)) suf[s] = {g, sp: I.sp, a: s}; }
         }
         for (const I of info) for (let a = 0; a + L1 + minGap < SLOTS; a++) {
-          const g = gain(I, a, L1); if (g < 0) continue;
+          const g = gain(I, a, L1); if (g === -Infinity) continue;
           const b = suf[a + L1 + minGap]; if (!b) continue;
-          consider((g + b.g) * 10, [{sp: I.sp, a, L: L1}, {sp: b.sp, a: b.a, L: L2}]);
+          consider(g + b.g, [{sp: I.sp, a, L: L1}, {sp: b.sp, a: b.a, L: L2}]);
         }
       }
       if (bp) return bp;
@@ -942,7 +970,7 @@ function bookingSummary(sp, day) {
   return (sp.bookingTypes || []).filter(t => +bk[t.key] > 0).map(t => `${t.label.toLowerCase()} ${bk[t.key]}`).join(', ');
 }
 function scheduleText(date, day) {
-  const lines = ['Work schedule – ' + fmtDate(date)], groups = peopleByPlace(day);
+  const lines = ['Work schedule – ' + fmtDate(date) + (day.pax ? ` (${day.pax} passengers)` : '')], groups = peopleByPlace(day);
   cfg().salesPoints.forEach(sp => {
     const people = groups.get(sp.id) || [], bk = bookingSummary(sp, day);
     if (!people.length && !bk) return;
@@ -1018,7 +1046,9 @@ function renderDay() {
       <span class="per">Departure <select data-ch="port" data-f="dep">${timeOptsNone(pc.dep)}</select></span></div></div>`; })()}</div>`;
 
   const bookSps = sps.filter(sp => (sp.bookingTypes || []).length);
-  const res = `<div class="card"><h3>Reservations</h3>${bookSps.map(sp => {
+  const paxBox = `<div class="paxrow"><label>Total passengers <input type="number" min="0" inputmode="numeric" placeholder="0" value="${day.pax || ''}" data-ch="pax"></label>
+    <div class="muted" id="pax-hint">Minimum staff morning/day/night: ${paxSummary(day)}</div></div>`;
+  const res = `<div class="card"><h3>Reservations</h3>${paxBox}${bookSps.map(sp => {
     const bk = day.bookings[sp.id] || {}, h = spHours(sp, curDate, day);
     const total = sp.bookingTypes.reduce((a, t) => a + (+bk[t.key] || 0), 0);
     return `<div class="grp"><div class="grp-h"><span class="dot" style="background:${sp.color}"></span>${esc(sp.name)}
@@ -1262,6 +1292,17 @@ function renderSetup() {
       <p class="help">The hours each position covers. Someone ticked only for "Laterna Magica morning" is only scheduled there inside those hours. 05:00–05:00 means the whole day.</p>
       <div style="overflow-x:auto"><table><tr><th>Position</th><th>Sales point</th><th>Hours</th></tr>${posRows}</table></div>
     </div>
+    <div class="card"><h3>Passengers → minimum staff <span class="muted">per shift, while open</span></h3>
+      <p class="help">The day's "Total passengers" picks the row with the highest "from" that it reaches. Bookings and port-call extras come on top.</p>
+      <div class="setup-grid">${cfg().salesPoints.filter(sp => sp.paxRules).map(sp => `<div>
+        <div class="grp-h"><span class="dot" style="background:${sp.color}"></span>${esc(sp.name)}</div>
+        <table><tr><th>From passengers</th>${PAX_SHIFTS.map(k => `<th>${k[0].toUpperCase() + k.slice(1)} <span class="muted">${(([a, b]) => slotTime(a) + '–' + slotTime(b))(shiftWin(sp.id, k))}</span></th>`).join('')}<th></th></tr>
+        ${[...sp.paxRules].map((r, i) => ({r, i})).sort((a, b) => a.r.from - b.r.from).map(({r, i}) => `<tr>
+          <td><input type="number" min="0" step="50" value="${r.from}" data-ch="paxr" data-id="${sp.id}" data-i="${i}" data-f="from" style="width:80px"></td>
+          ${PAX_SHIFTS.map(k => `<td><input type="number" min="0" value="${r[k]}" data-ch="paxr" data-id="${sp.id}" data-i="${i}" data-f="${k}" style="width:56px"></td>`).join('')}
+          <td><button class="x" data-act="pax-del" data-id="${sp.id}" data-i="${i}" title="Remove row">✕</button></td></tr>`).join('')}
+        <tr><td colspan="5"><button class="link" data-act="pax-add" data-id="${sp.id}">+ row</button></td></tr></table></div>`).join('')}</div>
+    </div>
     <div class="card"><h3>Port calls <span class="muted">ship time, standard week</span></h3>
       <table style="max-width:460px"><tr><th>Day</th><th>Arrival</th><th>Departure</th></tr>
       ${WD.map((d, i) => { const pc = (cfg().port || {})[d] || {}; return `<tr><td>${WDL[i].slice(0, 3)}</td><td><select data-ch="portw" data-d="${d}" data-f="arr">${timeOptsNone(pc.arr)}</select></td><td><select data-ch="portw" data-d="${d}" data-f="dep">${timeOptsNone(pc.dep)}</select></td></tr>`; }).join('')}</table>
@@ -1395,6 +1436,9 @@ document.addEventListener('click', e => {
     case 'copyprev': { const p = state.days[addDays(curDate, -7)]; if (!p || !p.working.length) { alert('Nobody was ticked in on the same weekday last week.'); return; } day.working = [...p.working]; break; }
     case 'hours-reset': delete day.hours[id]; break;
     case 'port-reset': delete day.port; break;
+    case 'pax-add': { const sp = spById(id), last = [...sp.paxRules].sort((a, b) => b.from - a.from)[0] || {from: 0, morning: 1, day: 1, night: 1};
+      sp.paxRules.push({...last, from: last.from + 500}); saveConfig(); render(); return; }
+    case 'pax-del': { const sp = spById(id); if (sp.paxRules.length <= 1) { alert('Keep at least one row.'); return; } sp.paxRules.splice(+b.dataset.i, 1); saveConfig(); render(); return; }
     case 'per-add': {
       const t = hoursTarget(b), last = t.h.periods[t.h.periods.length - 1];
       t.h.periods.push(last ? {open: last.close === '05:00' ? '18:00' : last.close, close: LATE} : {open: '12:00', close: '22:00'});
@@ -1477,6 +1521,8 @@ document.addEventListener('change', e => {
   const C = cfg(), id = el.dataset.id, f = el.dataset.f;
   if (ch === 'date') { if (el.value) setDate(el.value); return; }
   if (ch === 'book') return; // handled on 'input' below, without redrawing the page
+  if (ch === 'paxr') { const r = spById(id).paxRules[+el.dataset.i]; r[f] = Math.max(0, parseInt(el.value, 10) || 0); saveConfig(); scheduleRender(); return; }
+  if (ch === 'pax') return; // saved on input
   if (ch === 'port') { const day = getDay(curDate); day.port = {...portFor(curDate, day), [f]: el.value || null}; saveDay(curDate); scheduleRender(); return; }
   if (ch === 'portw') { C.port[el.dataset.d] = {...(C.port[el.dataset.d] || {}), [f]: el.value || null}; saveConfig(); scheduleRender(); return; }
   if (ch === 'dock') { C.dockRule[f] = Math.max(0, parseFloat(el.value) || 0); saveConfig(); scheduleRender(); return; }
@@ -1499,7 +1545,14 @@ document.addEventListener('change', e => {
 });
 
 document.addEventListener('input', e => {
-  const el = e.target; if (el.dataset.ch !== 'book') return;
+  const el = e.target;
+  if (el.dataset.ch === 'pax') {
+    const day = getDay(curDate); day.pax = Math.max(0, parseInt(el.value, 10) || 0); saveDay(curDate);
+    const hint = $('#pax-hint'); if (hint) hint.innerHTML = 'Minimum staff morning/day/night: ' + paxSummary(day);
+    const r = $('#dayResults'); if (r) r.innerHTML = dayResultsHTML(day);
+    return;
+  }
+  if (el.dataset.ch !== 'book') return;
   const day = getDay(curDate), sp = spById(el.dataset.sp), n = Math.max(0, parseInt(el.value, 10) || 0);
   day.bookings[sp.id] = {...(day.bookings[sp.id] || {}), [el.dataset.k]: n};
   saveDay(curDate);
