@@ -450,6 +450,7 @@ function ensureConfig(c) {
   if (!c.everyoneBreaks) { c.rules ||= {}; c.rules.minBreakBlockH = 0; c.everyoneBreaks = true; changed = true; } // every crew member gets a meal break, any shift length
   { const t = (c.fixedRules || []).find(r => r.type === 'team' && r.sp === 'munkastova');
     if (t && !t.fixedDays) { t.fixedDays = [{season: 'shoulder', day: 'wed', start: '12:00'}, {season: 'shoulder', day: 'thu', end: '00:00'}]; changed = true; } }
+  if (!c.prepStaffRule) { c.salesPoints.forEach(sp => { if (['noatun', 'laterna'].includes(sp.id)) sp.prepStaff = 1; }); c.prepStaffRule = true; changed = true; }
   if (!c.lunchRules) { // buffet lunch (from the summer schedules): 3 people, 12:00-15:00, never more than 3
     const sk = c.salesPoints.find(x => x.id === 'skansagardur');
     if (sk) sk.lunchPrep = {before: 0, after: 60, staff: 3, max: 3};
@@ -602,6 +603,17 @@ function lunchWindow(sp, date, day) {
   if (!p) return null;
   return [Math.max(0, toSlot(p.open) - Math.ceil((+sp.lunchPrep.before || 0) / 30)), Math.min(SLOTS, endSlot(p.close) + Math.ceil((+sp.lunchPrep.after || 0) / 30))];
 }
+// Half hours at a place where nobody may be added beyond what's needed: the buffet lunch window,
+// and the hour before opening at places where only the opener comes in early.
+function hardCaps(sp, date, day) {
+  const cap = new Array(SLOTS).fill(false), w = lunchWindow(sp, date, day);
+  if (w) for (let k = w[0]; k < w[1]; k++) cap[k] = true;
+  if (+sp.prepStaff > 0) {
+    const h = spHours(sp, date, day), pre = Math.ceil((+sp.prepMin || 0) / 30);
+    h.periods.forEach(p => { const o = toSlot(p.open); for (let k = Math.max(0, o - pre); k < o; k++) if (!isOpenAt(h, k)) cap[k] = 'prep'; });
+  }
+  return cap;
+}
 function computeNeed(date, day, planning = true) {
   const need = {};
   for (const sp of cfg().salesPoints) {
@@ -616,7 +628,7 @@ function computeNeed(date, day, planning = true) {
     const pre = Math.ceil((+sp.prepMin || 0) / 30), post = Math.ceil((+sp.closeMin || 0) / 30);
     const base = Math.max(1, +sp.baseStaff || 1);
     const open = new Array(SLOTS).fill(false);
-    const lastClose = Math.max(...h.periods.map(p => endSlot(p.close))), capSlots = {};
+    const lastClose = Math.max(...h.periods.map(p => endSlot(p.close))), capSlots = {}, prepSlots = new Set();
     h.periods.forEach(p => {
       const o = toSlot(p.open), c = endSlot(p.close); if (c <= o) return;
       for (let s = o; s < c; s++) open[s] = true;
@@ -627,6 +639,7 @@ function computeNeed(date, day, planning = true) {
       const af = mp ? Math.ceil((+mp.after || 0) / 30) : (c < lastClose && sp.midCloseMin !== undefined ? Math.ceil(+sp.midCloseMin / 30) : post);
       const svcBase = mp && +mp.staff > 0 ? +mp.staff : base; // breakfast can have its own staff count
       for (let s = Math.max(0, o - b4); s < Math.min(SLOTS, c + af); s++) { arr[s] = svcBase; if (mp && +mp.max > 0) capSlots[s] = +mp.max; }
+      for (let s = Math.max(0, o - b4); s < o; s++) prepSlots.add(s);
     });
     // Passengers: minimum staff per shift while open
     if ((sp.paxRules || []).length) {
@@ -651,6 +664,8 @@ function computeNeed(date, day, planning = true) {
     });
     if (+sp.maxStaff > 0) for (let s = 0; s < SLOTS; s++) arr[s] = Math.min(arr[s], +sp.maxStaff);
     for (const k in capSlots) arr[k] = Math.min(arr[k], capSlots[k]); // e.g. buffet lunch: never more than 3
+    // before opening only the opener comes in (e.g. Noatun, Laterna: 1 person, 1h before)
+    if (+sp.prepStaff > 0) prepSlots.forEach(k => { if (!open[k]) arr[k] = Math.min(arr[k], +sp.prepStaff); });
     // Staff meals: plan one extra person so breaks never leave the place below its minimum
     if (+sp.mealCover > 0 && planning) (R().meals || []).forEach(m => {
       for (let s = toSlot(m.from); s < endSlot(m.to); s++) if (arr[s] > 0) arr[s] += 1;
@@ -723,6 +738,7 @@ function placeBreaks(date, day) {
         for (let j = k; j < k + bl; j++) { const t = at(j); if (!t || t.sp !== s.sp) fits = false; else spare += isOpenAt(oh, j) ? cover[s.sp][j] - need[s.sp][j] : 1000; } // closed/prep time: best
         const mc = +(spById(s.sp) || {}).mealCover || 0;
         if (fits && mc) for (let j = k; j < k + bl; j++) if (isOpenAt(oh, j) && cover[s.sp][j] - 1 < floor[s.sp][j]) spare -= 100; // would leave it below its minimum
+        if (fits) for (let j = k; j < k + bl; j++) if (isOpenAt(oh, j) && cover[s.sp][j] - 1 <= 0) spare -= 10000; // would leave the outlet with nobody
         if (fits && (!bestB || spare > bestB.spare)) bestB = {slot: k, sp: s.sp, spare};
       }
       if (!bestB) { notes.push(`${e.name} has no room for a ${m.label.toLowerCase()} break.`); return; }
@@ -842,6 +858,7 @@ function generate(date, day) {
   const capWin = {};
   // buffet lunch: never more than its staff count — only short half hours can be filled there
   const lunchCap = {}; sps.forEach(sp => { const w = lunchWindow(sp, date, day); if (w) lunchCap[sp.id] = w; });
+  const hardCap = {}; sps.forEach(sp => hardCap[sp.id] = hardCaps(sp, date, day));
   // closed places with a cleaning shift: exactly the cleaning person, nobody extra
   sps.forEach(sp => { if (!isOpenDay(sp.id) && need[sp.id].some(x => x > 0)) capWin[sp.id] = [0, SLOTS]; });
   function bestPlan(e, homeWeight, homeSp = e.headAt, ext = 6, mustHome = false, mustRange = null) {
@@ -870,8 +887,9 @@ function generate(date, day) {
         if (k > 0 && e2 < SLOTS && e2 - k <= 3 && !touchesLunch) for (let j = k; j < e2; j++) bridge[j] = true;
         k = e2;
       }
-      const ok = k => k >= E && m[k] && (home ? homeOk[k] || bridge[k] : n[k] > 0 || bridge[k]) && !(cw && k >= cw[0] && k < cw[1] && n[k] - c[k] <= 0) && !(lc && k >= lc[0] && k < lc[1] && n[k] - c[k] <= 0);
-      const pre = [0]; for (let k = 0; k < SLOTS; k++) pre.push(pre[k] + (ok(k) && n[k] - c[k] > 0 ? w : 0));
+      const hc = hardCap[sp.id];
+      const ok = k => k >= E && m[k] && (home ? homeOk[k] || bridge[k] : n[k] > 0 || bridge[k]) && !(cw && k >= cw[0] && k < cw[1] && n[k] - c[k] <= 0) && !(hc[k] && n[k] - c[k] <= 0) && hc[k] !== 'prep';
+      const pre = [0]; for (let k = 0; k < SLOTS; k++) pre.push(pre[k] + (ok(k) && n[k] - c[k] > 0 ? w * (c[k] === 0 ? 20 : 1) : 0)); // an empty outlet matters most
       // how overstaffed a slot would become: used to spread extra people instead of piling them up
       const opre = [0]; for (let k = 0; k < SLOTS; k++) opre.push(opre[k] + (ok(k) && n[k] - c[k] <= 0 ? c[k] - n[k] + 1 : 0));
       const run = new Array(SLOTS + 1).fill(0); for (let k = SLOTS - 1; k >= 0; k--) run[k] = ok(k) ? run[k + 1] + 1 : 0;
@@ -1125,6 +1143,39 @@ function generate(date, day) {
     if (!pick) break;
     assignPlan(pick.e, pick.p);
   }
+  // 2b) Everyone works their full hours: extend shifts — into empty/short spots first, otherwise by staying
+  //     after closing (clean-up, up to 3h). Never by coming in before opening.
+  pool.forEach(e => {
+    const T = targetSlots(e, day), [w0, w1] = signWindow(e, date, day);
+    for (let guard = 0; guard < 40; guard++) {
+      const mine = shifts.filter(x => x.emp === e.id), total = mine.reduce((t, x) => t + x.end - x.start, 0);
+      if (!mine.length || total >= T) break;
+      let best = null;
+      for (const sh of mine) {
+        if (sh.fixed) continue;                                // fixed-rule shifts keep their shape
+        const spx = spById(sh.sp), h = spHours(spx, date, day), n = need[sh.sp], c = cover[sh.sp];
+        for (const side of ['end', 'start']) {
+          const k = side === 'end' ? sh.end : sh.start - 1;
+          if (k < 0 || k >= SLOTS || k < w0 || k >= w1 || mine.some(x => k >= x.start && k < x.end)) continue;
+          if (!empMask(e, sh.sp)[k]) continue;
+          if (side === 'start' && k < earliestStart(e, date)) continue;
+          const cw = capWin[sh.sp];
+          if (hardCap[sh.sp][k] === 'prep' || ((hardCap[sh.sp][k] || (cw && k >= cw[0] && k < cw[1])) && n[k] - c[k] <= 0)) continue;
+          const afterClose = h.periods.some(p => k >= endSlot(p.close) && k < endSlot(p.close) + 6);
+          if (!(isOpenAt(h, k) || n[k] > 0 || (side === 'end' && afterClose))) continue;
+          const iv = mine.map(x => x === sh ? (side === 'end' ? [x.start, x.end + 1] : [x.start - 1, x.end]) : [x.start, x.end]).sort((p, q) => p[0] - q[0]);
+          const mg = []; iv.forEach(([p, q]) => { const l = mg[mg.length - 1]; if (l && p <= l[1]) l[1] = Math.max(l[1], q); else mg.push([p, q]); });
+          if (mg.length > 2 || mg.some((x, i) => i && x[0] - mg[i - 1][1] < minGap)) continue;
+          const sc = (n[k] > 0 && c[k] === 0 ? 5000 : 0) + (n[k] - c[k] > 0 ? 1000 : 0) - (c[k] - n[k]) + (side === 'end' ? 1 : 0);
+          if (!best || sc > best.sc) best = {sh, side, k, sc};
+        }
+      }
+      if (!best) break;
+      if (best.side === 'end') best.sh.end++; else best.sh.start--;
+      cover[best.sh.sp][best.k]++;
+    }
+  });
+
   // 3) Last resort: managers/supervisors fill what is still short (again after breaks; see fillWithBackups)
   fillWithBackups(date, day, shifts, cover);
   day.genNotes = notes;
@@ -1192,7 +1243,9 @@ function fillWithBackups(date, day, shifts, cover) {
   const backups = cfg().employees.filter(e => day.working.includes(e.id) && isBackup(e));
   if (!backups.length) return 0;
   const floor = computeNeed(date, day, false);
-  const isShort = (sp, k) => floor[sp][k] - cover[sp][k] > 0;
+  const caps = {}; sps.forEach(sp => caps[sp.id] = hardCaps(sp, date, day));
+  // before opening only the opener comes in, so backups never fill those slots
+  const isShort = (sp, k) => caps[sp][k] !== 'prep' && floor[sp][k] - cover[sp][k] > 0;
   const order = [...backups].sort((a, b) => (!!b.supervisor - !!a.supervisor) || (!!a.manager - !!b.manager));
   const used = e => shifts.filter(x => x.emp === e.id).reduce((t, x) => t + x.end - x.start, 0);
   const fits = (e, a, b) => {
@@ -1203,11 +1256,11 @@ function fillWithBackups(date, day, shifts, cover) {
   let added = 0;
   for (let guard = 0; guard < 120; guard++) {
     const runs = [];
-    sps.forEach(sp => { let k = 0; while (k < SLOTS) { if (!isShort(sp.id, k)) { k++; continue; } let e = k; while (e < SLOTS && isShort(sp.id, e)) e++; runs.push({sp: sp.id, s: k, e}); k = e; } });
+    sps.forEach(sp => { let k = 0; while (k < SLOTS) { if (!isShort(sp.id, k)) { k++; continue; } let e = k; while (e < SLOTS && isShort(sp.id, e)) e++; runs.push({sp: sp.id, s: k, e, empty: cover[sp.id].slice(k, e).some(v => v === 0)}); k = e; } });
     if (!runs.length) break;
-    // mandatory places (e.g. Placeur) first, then the longest gaps
+    // an outlet with nobody at all comes first, then mandatory places (e.g. Placeur), then the longest gaps
     const must = new Set((cfg().fixedRules || []).filter(r => r.type === 'cover').map(r => r.sp));
-    runs.sort((a, b) => (must.has(b.sp) - must.has(a.sp)) || (b.e - b.s) - (a.e - a.s));
+    runs.sort((a, b) => (b.empty - a.empty) || (must.has(b.sp) - must.has(a.sp)) || (b.e - b.s) - (a.e - a.s));
     let done = false;
     for (const r of runs) {
       for (const e of order) {
@@ -1223,6 +1276,22 @@ function fillWithBackups(date, day, shifts, cover) {
         added++; done = true; break;
       }
       if (done) break;
+    }
+    if (!done) {
+      // nobody has hours left: move 30 min of a backup's time from a place that stays staffed to an outlet with nobody
+      for (const r of runs.filter(x => x.empty)) {
+        let k = r.s; while (k < r.e && cover[r.sp][k] !== 0) k++; if (k >= r.e) continue;
+        for (const e of order) {
+          const cand = shifts.filter(x => x.emp === e.id && x.fixed === 'backup' && x.end - x.start > 1).flatMap(x => [[x, x.start], [x, x.end - 1]])
+            .filter(([x, j]) => cover[x.sp][j] - 1 >= 1); // the place they leave still has someone
+          const pick = cand.find(([x, j]) => { if (j === x.start) x.start++; else x.end--; const f = fits(e, k, k + 1); if (j === x.start - 1) x.start--; else x.end++; return f; });
+          if (!pick) continue;
+          const [x, j] = pick; if (j === x.start) x.start++; else x.end--; cover[x.sp][j]--;
+          shifts.push({id: uid(), emp: e.id, sp: r.sp, start: k, end: k + 1, fixed: 'backup'}); cover[r.sp][k]++;
+          added++; done = true; break;
+        }
+        if (done) break;
+      }
     }
     if (!done) break;
   }
@@ -1546,6 +1615,7 @@ function renderSetup() {
       <label>Most staff at once (0 = no limit) <input type="number" min="0" value="${sp.maxStaff || 0}" data-ch="sp" data-id="${sp.id}" data-f="maxStaff"></label>
       <label>Arrive before opening (min) <input type="number" min="0" step="30" value="${sp.prepMin}" data-ch="sp" data-id="${sp.id}" data-f="prepMin"></label>
       <label>Stay after closing (min) <input type="number" min="0" step="30" value="${sp.closeMin}" data-ch="sp" data-id="${sp.id}" data-f="closeMin"></label>
+      <label>People before opening (0 = everyone) <input type="number" min="0" value="${sp.prepStaff || 0}" data-ch="sp" data-id="${sp.id}" data-f="prepStaff"></label>
       ${sp.hoursFrom ? '' : `<label>Cleaning shift when closed <span class="per"><input type="checkbox" style="width:auto" ${sp.closedClean && sp.closedClean.on ? 'checked' : ''} data-ch="clean" data-id="${sp.id}" data-f="on">
         <select data-ch="clean" data-id="${sp.id}" data-f="from" ${sp.closedClean && sp.closedClean.on ? '' : 'disabled'}>${timeOpts((sp.closedClean || {}).from || '12:00')}</select>–<select data-ch="clean" data-id="${sp.id}" data-f="to" ${sp.closedClean && sp.closedClean.on ? '' : 'disabled'}>${endOpts((sp.closedClean || {}).to || '17:00')}</select></span></label>
       ${sp.closedClean && sp.closedClean.on ? `<label>…on these days when closed <span class="per">${WD.map((d, i) => `<label class="mini"><input type="checkbox" style="width:auto" ${!sp.closedClean.days || sp.closedClean.days.includes(d) ? 'checked' : ''} data-ch="clean-day" data-id="${sp.id}" data-d="${d}">${WDL[i].slice(0, 2)}</label>`).join('')}</span></label>` : ''}`}
