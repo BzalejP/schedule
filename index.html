@@ -540,11 +540,14 @@ function computeNeed(date, day, planning = true) {
   }
   return need;
 }
-function computeCover(day) {
+function computeCover(day, date = curDate) {
   const cover = {};
   cfg().salesPoints.forEach(sp => cover[sp.id] = new Array(SLOTS).fill(0));
   day.shifts.forEach(s => { if (cover[s.sp]) for (let k = s.start; k < s.end; k++) cover[s.sp][k]++; });
-  (day.breaks || []).forEach(b => { if (cover[b.sp]) for (let k = b.slot; k < b.slot + b.len; k++) cover[b.sp][k]--; });
+  // a break only takes someone off the floor while the place is open; during closed/prep time it costs nothing
+  const hrs = {};
+  (day.breaks || []).forEach(b => { if (!cover[b.sp]) return; const h = hrs[b.sp] ||= spHours(spById(b.sp), date, day);
+    for (let k = b.slot; k < b.slot + b.len; k++) if (isOpenAt(h, k)) cover[b.sp][k]--; });
   return cover;
 }
 function gapRanges(n, c) {
@@ -580,7 +583,7 @@ function workBlocks(day, empId) {
 function placeBreaks(date, day) {
   const need = computeNeed(date, day), floor = computeNeed(date, day, false), notes = [];
   day.breaks = [];
-  const cover = computeCover(day);
+  const cover = computeCover(day, date);
   const bl = Math.max(1, Math.ceil(R().mealBreakMin / 30));
   cfg().employees.forEach(e => {
     const mine = day.shifts.filter(s => s.emp === e.id); if (!mine.length) return;
@@ -594,14 +597,15 @@ function placeBreaks(date, day) {
       for (let k = wS; k + bl <= wE; k++) {
         const s = at(k); if (!s) continue;
         let fits = true, spare = 0;
-        for (let j = k; j < k + bl; j++) { const t = at(j); if (!t || t.sp !== s.sp) fits = false; else spare += cover[s.sp][j] - need[s.sp][j]; }
+        const oh = spHours(spById(s.sp), date, day);
+        for (let j = k; j < k + bl; j++) { const t = at(j); if (!t || t.sp !== s.sp) fits = false; else spare += isOpenAt(oh, j) ? cover[s.sp][j] - need[s.sp][j] : 1000; } // closed/prep time: best
         const mc = +(spById(s.sp) || {}).mealCover || 0;
-        if (fits && mc) for (let j = k; j < k + bl; j++) if (cover[s.sp][j] - 1 < floor[s.sp][j]) spare -= 100; // would leave it below its minimum
+        if (fits && mc) for (let j = k; j < k + bl; j++) if (isOpenAt(oh, j) && cover[s.sp][j] - 1 < floor[s.sp][j]) spare -= 100; // would leave it below its minimum
         if (fits && (!bestB || spare > bestB.spare)) bestB = {slot: k, sp: s.sp, spare};
       }
       if (!bestB) { notes.push(`${e.name} has no room for a ${m.label.toLowerCase()} break.`); return; }
       day.breaks.push({emp: e.id, sp: bestB.sp, slot: bestB.slot, len: bl, meal: m.label});
-      for (let j = bestB.slot; j < bestB.slot + bl; j++) cover[bestB.sp][j]--;
+      { const oh = spHours(spById(bestB.sp), date, day); for (let j = bestB.slot; j < bestB.slot + bl; j++) if (isOpenAt(oh, j)) cover[bestB.sp][j]--; }
     });
   });
   day.breakNotes = notes;
