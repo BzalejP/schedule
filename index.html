@@ -44,6 +44,9 @@ main{padding:16px;max-width:1500px;margin:0 auto}
 .chip small{opacity:.8}
 .hrow{display:flex;align-items:center;gap:6px;padding:4px 0;flex-wrap:wrap}
 .hrow{flex-wrap:nowrap}
+.sailing{padding:2px 0 6px 16px;font-size:13px}
+.sailing .muted{font-size:11.5px}
+tr.cur td{background:var(--ok-bg)}
 .paxrow{margin:0 0 10px;padding-bottom:10px;border-bottom:1px dashed var(--line)}
 .paxrow label{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px}
 .paxrow input{width:110px;font-size:15px}
@@ -350,8 +353,44 @@ function ruleText(r) {
   if (r.type === 'team') return `${n}: one headwaiter always works there${r.dinner ? `; on days with 2 service windows ${r.lunch[0]}–${r.lunch[1]} and ${r.dinner[0]}–${r.dinner[1] === '00:00' ? '24:00' : r.dinner[1]}` : ''}. A second and third person are added only for the hours bookings need them. The same people are preferred day to day.`;
   return '';
 }
-function portFor(date, day) { return (day && day.port) || (cfg().port || {})[WD[wdIndex(date)]] || {arr: null, dep: null}; }
+// Smyril Line sailing schedule 2027 (issued 09.11.26), converted to SHIP time (Faroese time) and to
+// schedule days (05:00-05:00; a call between 00:00 and 05:00 belongs to the day before).
+// date -> [status ('at sea', 'in port: …', 'no sailing' or ''), calls [[port, arrival, departure]], note]
+const SAILING_SOURCE = 'Smyril Line sailing schedule 2027 (09.11.26)';
+const SAILING = {"2027-01-01":["no sailing",[],""],"2027-01-02":["no sailing",[],""],"2027-01-03":["no sailing",[],""],"2027-01-04":["no sailing",[],""],"2027-01-05":["no sailing",[],""],"2027-01-06":["no sailing",[],""],"2027-01-07":["no sailing",[],""],"2027-01-08":["no sailing",[],""],"2027-01-09":["no sailing",[],""],"2027-01-10":["no sailing",[],""],"2027-01-11":["no sailing",[],""],"2027-01-12":["no sailing",[],""],"2027-01-13":["no sailing",[],""],"2027-01-14":["no sailing",[],""],"2027-01-15":["no sailing",[],""],"2027-01-16":["no sailing",[],""],"2027-01-17":["",[["Hirtshals","10:00","14:00"]],"First departure in 2027"],"2027-01-18":["at sea",[],""],"2027-01-19":["",[["Tórshavn","07:30",null]],""],"2027-01-20":["in port: Tórshavn",[],""],"2027-01-21":["in port: Tórshavn",[],""],"2027-01-22":["",[["Tórshavn",null,"20:00"]],""],"2027-01-23":["at sea",[],""],"2027-01-24":["",[["Hirtshals","10:00","14:00"]],""],"2027-01-25":["at sea",[],""],"2027-01-26":["",[["Tórshavn","07:30",null]],""],"2027-01-27":["in port: Tórshavn",[],""],"2027-01-28":["in port: Tórshavn",[],""],"2027-01-29":["",[["Tórshavn",null,"20:00"]],""],"2027-01-30":["at sea",[],""],"2027-01-31":["",[["Hirtshals","10:00","14:00"]],""],"2027-02-01":["at sea",[],""],"2027-02-02":["",[["Tórshavn","07:30",null]],""],"2027-02-03":["in port: Tórshavn",[],""],"2027-02-04":["in port: Tórshavn",[],""],"2027-02-05":["",[["Tórshavn",null,"20:00"]],""],"2027-02-06":["at sea",[],""],"2027-02-07":["",[["Hirtshals","10:00","14:00"]],""],"2027-02-08":["at sea",[],""],"2027-02-09":["",[["Tórshavn","07:30",null]],""],"2027-02-10":["in port: Tórshavn",[],""],"2027-02-11":["in port: Tórshavn",[],""],"2027-02-12":["",[["Tórshavn",null,"20:00"]],""],"2027-02-13":["at sea",[],""],"2027-02-14":["",[["Hirtshals","10:00","14:00"]],""],"2027-02-15":["at sea",[],""],"2027-02-16":["",[["Tórshavn","07:30",null]],""],"2027-02-17":["in port: Tórshavn",[],""],"2027-02-18":["in port: Tórshavn",[],""],"2027-02-19":["",[["Tórshavn",null,"20:00"]],""],"2027-02-20":["at sea",[],""],"2027-02-21":["",[["Hirtshals","10:00","14:00"]],""],"2027-02-22":["at sea",[],""],"2027-02-23":["",[["Tórshavn","07:30",null]],""],"2027-02-24":["in port: Tórshavn",[],""],"2027-02-25":["in port: Tórshavn",[],""],"2027-02-26":["",[["Tórshavn",null,"20:00"]],""],"2027-02-27":["at sea",[],""],"2027-02-28":["",[["Hirtshals","10:00","14:00"]],""],"2027-03-01":["at sea",[],""],"2027-03-02":["",[["Tórshavn","07:30",null]],""],"2027-03-03":["in port: Tórshavn",[],""],"2027-03-04":["in port: Tórshavn",[],""],"2027-03-05":["",[["Tórshavn",null,"20:00"]],""],"2027-03-06":["at sea",[],""],"2027-03-07":["",[["Hirtshals","10:00","14:00"]],""],"2027-03-08":["at sea",[],""],"2027-03-09":["",[["Tórshavn","07:30",null]],""],"2027-03-10":["in port: Tórshavn",[],""],"2027-03-11":["in port: Tórshavn",[],""],"2027-03-12":["",[["Tórshavn",null,"20:00"]],""],"2027-03-13":["at sea",[],""],"2027-03-14":["",[["Hirtshals","10:00","14:00"]],""],"2027-03-15":["at sea",[],""],"2027-03-16":["",[["Tórshavn","07:30",null]],""],"2027-03-17":["in port: Tórshavn",[],""],"2027-03-18":["in port: Tórshavn",[],""],"2027-03-19":["",[["Tórshavn",null,"20:00"]],""],"2027-03-20":["at sea",[],""],"2027-03-21":["",[["Hirtshals","10:00","14:00"]],""],"2027-03-22":["at sea",[],""],"2027-03-23":["",[["Tórshavn","07:30",null]],""],"2027-03-24":["in port: Tórshavn",[],""],"2027-03-25":["in port: Tórshavn",[],""],"2027-03-26":["",[["Tórshavn",null,"20:00"]],""],"2027-03-27":["at sea",[],""],"2027-03-28":["",[["Hirtshals","10:00","14:00"]],""],"2027-03-29":["at sea",[],""],"2027-03-30":["",[["Tórshavn","07:30","13:00"]],""],"2027-03-31":["",[["Seyðisfjörður","10:00",null]],""],"2027-04-01":["",[["Seyðisfjörður",null,"21:00"]],""],"2027-04-02":["",[["Tórshavn","16:00","20:00"]],""],"2027-04-03":["at sea",[],""],"2027-04-04":["",[["Hirtshals","10:00","14:00"]],""],"2027-04-05":["at sea",[],""],"2027-04-06":["",[["Tórshavn","07:30","13:00"]],""],"2027-04-07":["",[["Seyðisfjörður","10:00",null]],""],"2027-04-08":["",[["Seyðisfjörður",null,"21:00"]],""],"2027-04-09":["",[["Tórshavn","16:00","20:00"]],""],"2027-04-10":["at sea",[],""],"2027-04-11":["",[["Hirtshals","10:00","14:00"]],""],"2027-04-12":["at sea",[],""],"2027-04-13":["",[["Tórshavn","07:30","13:00"]],""],"2027-04-14":["",[["Seyðisfjörður","10:00",null]],""],"2027-04-15":["",[["Seyðisfjörður",null,"21:00"]],""],"2027-04-16":["",[["Tórshavn","16:00","20:00"]],""],"2027-04-17":["at sea",[],""],"2027-04-18":["",[["Hirtshals","10:00","14:00"]],""],"2027-04-19":["at sea",[],""],"2027-04-20":["",[["Tórshavn","07:30","13:00"]],""],"2027-04-21":["",[["Seyðisfjörður","10:00",null]],""],"2027-04-22":["",[["Seyðisfjörður",null,"21:00"]],""],"2027-04-23":["",[["Tórshavn","16:00","20:00"]],""],"2027-04-24":["at sea",[],""],"2027-04-25":["",[["Hirtshals","10:00","14:00"]],""],"2027-04-26":["at sea",[],""],"2027-04-27":["",[["Tórshavn","07:30","13:00"]],""],"2027-04-28":["",[["Seyðisfjörður","10:00",null]],""],"2027-04-29":["",[["Seyðisfjörður",null,"21:00"]],""],"2027-04-30":["",[["Tórshavn","16:00","20:00"]],""],"2027-05-01":["at sea",[],""],"2027-05-02":["",[["Hirtshals","10:00","14:00"]],""],"2027-05-03":["at sea",[],""],"2027-05-04":["",[["Tórshavn","07:30","13:00"]],""],"2027-05-05":["",[["Seyðisfjörður","10:00",null]],""],"2027-05-06":["",[["Seyðisfjörður",null,"21:00"]],""],"2027-05-07":["",[["Tórshavn","16:00","20:00"]],""],"2027-05-08":["at sea",[],""],"2027-05-09":["",[["Hirtshals","10:00","14:00"]],""],"2027-05-10":["at sea",[],""],"2027-05-11":["",[["Tórshavn","07:30","13:00"]],""],"2027-05-12":["",[["Seyðisfjörður","10:00",null]],""],"2027-05-13":["",[["Seyðisfjörður",null,"21:00"]],""],"2027-05-14":["",[["Tórshavn","16:00","20:00"]],""],"2027-05-15":["at sea",[],""],"2027-05-16":["",[["Hirtshals","10:00","14:00"]],""],"2027-05-17":["at sea",[],""],"2027-05-18":["",[["Tórshavn","07:30","13:00"]],""],"2027-05-19":["",[["Seyðisfjörður","10:00",null]],""],"2027-05-20":["",[["Seyðisfjörður",null,"21:00"]],""],"2027-05-21":["",[["Tórshavn","16:00","20:00"]],""],"2027-05-22":["at sea",[],""],"2027-05-23":["",[["Hirtshals","10:00","14:00"]],""],"2027-05-24":["at sea",[],""],"2027-05-25":["",[["Tórshavn","07:30","13:00"]],""],"2027-05-26":["",[["Seyðisfjörður","10:00","21:00"]],""],"2027-05-27":["",[["Tórshavn","16:00","20:00"]],""],"2027-05-28":["at sea",[],""],"2027-05-29":["",[["Hirtshals","11:30","14:30"]],""],"2027-05-30":["",[["Tórshavn","22:30","23:30"]],""],"2027-05-31":["at sea",[],""],"2027-06-01":["",[["Hirtshals","08:30","10:30"]],""],"2027-06-02":["",[["Tórshavn","17:30","18:00"]],""],"2027-06-03":["",[["Seyðisfjörður","09:30","11:30"],["Tórshavn","03:00","03:30"]],""],"2027-06-04":["at sea",[],""],"2027-06-05":["",[["Hirtshals","11:30","14:30"]],""],"2027-06-06":["",[["Tórshavn","22:30","23:30"]],""],"2027-06-07":["at sea",[],""],"2027-06-08":["",[["Hirtshals","08:30","10:30"]],""],"2027-06-09":["",[["Tórshavn","17:30","18:00"]],""],"2027-06-10":["",[["Seyðisfjörður","09:30","11:30"],["Tórshavn","03:00","03:30"]],""],"2027-06-11":["at sea",[],""],"2027-06-12":["",[["Hirtshals","11:30","14:30"]],""],"2027-06-13":["",[["Tórshavn","22:30","23:30"]],""],"2027-06-14":["at sea",[],""],"2027-06-15":["",[["Hirtshals","08:30","10:30"]],""],"2027-06-16":["",[["Tórshavn","17:30","18:00"]],""],"2027-06-17":["",[["Seyðisfjörður","09:30","11:30"],["Tórshavn","03:00","03:30"]],""],"2027-06-18":["at sea",[],""],"2027-06-19":["",[["Hirtshals","11:30","14:30"]],""],"2027-06-20":["",[["Tórshavn","22:30","23:30"]],""],"2027-06-21":["at sea",[],""],"2027-06-22":["",[["Hirtshals","08:30","10:30"]],""],"2027-06-23":["",[["Tórshavn","17:30","18:00"]],""],"2027-06-24":["",[["Seyðisfjörður","09:30","11:30"],["Tórshavn","03:00","03:30"]],""],"2027-06-25":["at sea",[],""],"2027-06-26":["",[["Hirtshals","11:30","14:30"]],""],"2027-06-27":["",[["Tórshavn","22:30","23:30"]],""],"2027-06-28":["at sea",[],""],"2027-06-29":["",[["Hirtshals","08:30","10:30"]],""],"2027-06-30":["",[["Tórshavn","17:30","18:00"]],""],"2027-07-01":["",[["Seyðisfjörður","09:30","11:30"],["Tórshavn","03:00","03:30"]],""],"2027-07-02":["at sea",[],""],"2027-07-03":["",[["Hirtshals","11:30","14:30"]],""],"2027-07-04":["",[["Tórshavn","22:30","23:30"]],""],"2027-07-05":["at sea",[],""],"2027-07-06":["",[["Hirtshals","08:30","10:30"]],""],"2027-07-07":["",[["Tórshavn","17:30","18:00"]],""],"2027-07-08":["",[["Seyðisfjörður","09:30","11:30"],["Tórshavn","03:00","03:30"]],""],"2027-07-09":["at sea",[],""],"2027-07-10":["",[["Hirtshals","11:30","14:30"]],""],"2027-07-11":["",[["Tórshavn","22:30","23:30"]],""],"2027-07-12":["at sea",[],""],"2027-07-13":["",[["Hirtshals","08:30","10:30"]],""],"2027-07-14":["",[["Tórshavn","17:30","18:00"]],""],"2027-07-15":["",[["Seyðisfjörður","09:30","11:30"],["Tórshavn","03:00","03:30"]],""],"2027-07-16":["at sea",[],""],"2027-07-17":["",[["Hirtshals","11:30","14:30"]],""],"2027-07-18":["",[["Tórshavn","22:30","23:30"]],""],"2027-07-19":["at sea",[],""],"2027-07-20":["",[["Hirtshals","08:30","10:30"]],""],"2027-07-21":["",[["Tórshavn","17:30","18:00"]],""],"2027-07-22":["",[["Seyðisfjörður","09:30","11:30"],["Tórshavn","03:00","03:30"]],""],"2027-07-23":["at sea",[],""],"2027-07-24":["",[["Hirtshals","11:30","14:30"]],""],"2027-07-25":["",[["Tórshavn","22:30","23:30"]],""],"2027-07-26":["at sea",[],""],"2027-07-27":["",[["Hirtshals","08:30","10:30"]],""],"2027-07-28":["",[["Tórshavn","17:30","18:00"]],""],"2027-07-29":["",[["Seyðisfjörður","09:30","11:30"],["Tórshavn","03:00","03:30"]],""],"2027-07-30":["at sea",[],""],"2027-07-31":["",[["Hirtshals","11:30","14:30"]],""],"2027-08-01":["",[["Tórshavn","22:30","23:30"]],""],"2027-08-02":["at sea",[],""],"2027-08-03":["",[["Hirtshals","08:30","10:30"]],""],"2027-08-04":["",[["Tórshavn","17:30","18:00"]],""],"2027-08-05":["",[["Seyðisfjörður","09:30","11:30"],["Tórshavn","03:00","03:30"]],""],"2027-08-06":["at sea",[],""],"2027-08-07":["",[["Hirtshals","11:30","14:30"]],""],"2027-08-08":["",[["Tórshavn","22:30","23:30"]],""],"2027-08-09":["at sea",[],""],"2027-08-10":["",[["Hirtshals","08:30","10:30"]],""],"2027-08-11":["",[["Tórshavn","17:30","18:00"]],""],"2027-08-12":["",[["Seyðisfjörður","09:30","11:30"],["Tórshavn","03:00","03:30"]],""],"2027-08-13":["at sea",[],""],"2027-08-14":["",[["Hirtshals","11:30","14:30"]],""],"2027-08-15":["",[["Tórshavn","22:30","23:30"]],""],"2027-08-16":["at sea",[],""],"2027-08-17":["",[["Hirtshals","08:30","10:30"]],""],"2027-08-18":["",[["Tórshavn","17:30","18:00"]],""],"2027-08-19":["",[["Seyðisfjörður","09:30","11:30"],["Tórshavn","03:00","03:30"]],""],"2027-08-20":["at sea",[],""],"2027-08-21":["",[["Hirtshals","11:30","14:30"]],""],"2027-08-22":["",[["Tórshavn","22:30","23:30"]],""],"2027-08-23":["at sea",[],""],"2027-08-24":["",[["Hirtshals","08:30","10:30"]],""],"2027-08-25":["",[["Tórshavn","17:30","18:00"]],""],"2027-08-26":["",[["Seyðisfjörður","09:30","11:30"],["Tórshavn","03:00","03:30"]],""],"2027-08-27":["at sea",[],""],"2027-08-28":["",[["Hirtshals","11:30","14:30"]],""],"2027-08-29":["",[["Tórshavn","22:30","23:30"]],""],"2027-08-30":["at sea",[],""],"2027-08-31":["",[["Hirtshals","08:30","10:30"]],""],"2027-09-01":["",[["Tórshavn","17:30","18:00"]],""],"2027-09-02":["",[["Seyðisfjörður","09:30","11:30"],["Tórshavn","03:00","03:30"]],""],"2027-09-03":["at sea",[],""],"2027-09-04":["",[["Hirtshals","11:30","14:00"]],""],"2027-09-05":["at sea",[],""],"2027-09-06":["",[["Tórshavn","07:30","13:00"]],""],"2027-09-07":["",[["Seyðisfjörður","10:00",null]],""],"2027-09-08":["in port: Seyðisfjörður",[],""],"2027-09-09":["",[["Seyðisfjörður",null,"21:00"]],""],"2027-09-10":["",[["Tórshavn","16:00","20:00"]],""],"2027-09-11":["at sea",[],""],"2027-09-12":["",[["Hirtshals","10:00","14:00"]],""],"2027-09-13":["at sea",[],""],"2027-09-14":["",[["Tórshavn","07:30","13:00"]],""],"2027-09-15":["",[["Seyðisfjörður","10:00",null]],""],"2027-09-16":["",[["Seyðisfjörður",null,"21:00"]],""],"2027-09-17":["",[["Tórshavn","16:00","20:00"]],""],"2027-09-18":["at sea",[],""],"2027-09-19":["",[["Hirtshals","10:00","14:00"]],""],"2027-09-20":["at sea",[],""],"2027-09-21":["",[["Tórshavn","07:30","13:00"]],""],"2027-09-22":["",[["Seyðisfjörður","10:00",null]],""],"2027-09-23":["",[["Seyðisfjörður",null,"21:00"]],""],"2027-09-24":["",[["Tórshavn","16:00","20:00"]],""],"2027-09-25":["at sea",[],""],"2027-09-26":["",[["Hirtshals","10:00","14:00"]],""],"2027-09-27":["at sea",[],""],"2027-09-28":["",[["Tórshavn","07:30","13:00"]],""],"2027-09-29":["",[["Seyðisfjörður","10:00",null]],""],"2027-09-30":["",[["Seyðisfjörður",null,"21:00"]],""],"2027-10-01":["",[["Tórshavn","16:00","20:00"]],""],"2027-10-02":["at sea",[],""],"2027-10-03":["",[["Hirtshals","10:00","14:00"]],""],"2027-10-04":["at sea",[],""],"2027-10-05":["",[["Tórshavn","07:30","13:00"]],""],"2027-10-06":["",[["Seyðisfjörður","10:00",null]],""],"2027-10-07":["",[["Seyðisfjörður",null,"21:00"]],""],"2027-10-08":["",[["Tórshavn","16:00","20:00"]],""],"2027-10-09":["at sea",[],""],"2027-10-10":["",[["Hirtshals","10:00","14:00"]],""],"2027-10-11":["at sea",[],""],"2027-10-12":["",[["Tórshavn","07:30","13:00"]],""],"2027-10-13":["",[["Seyðisfjörður","10:00",null]],""],"2027-10-14":["",[["Seyðisfjörður",null,"21:00"]],""],"2027-10-15":["",[["Tórshavn","16:00","20:00"]],""],"2027-10-16":["at sea",[],""],"2027-10-17":["",[["Hirtshals","10:00","14:00"]],""],"2027-10-18":["at sea",[],""],"2027-10-19":["",[["Tórshavn","07:30","13:00"]],""],"2027-10-20":["",[["Seyðisfjörður","10:00",null]],""],"2027-10-21":["",[["Seyðisfjörður",null,"21:00"]],""],"2027-10-22":["",[["Tórshavn","16:00","20:00"]],""],"2027-10-23":["at sea",[],""],"2027-10-24":["",[["Hirtshals","10:00","14:00"]],""],"2027-10-25":["at sea",[],""],"2027-10-26":["",[["Tórshavn","07:30","13:00"]],""],"2027-10-27":["",[["Seyðisfjörður","10:00",null]],""],"2027-10-28":["",[["Seyðisfjörður",null,"21:00"]],""],"2027-10-29":["",[["Tórshavn","16:00","20:00"]],""],"2027-10-30":["at sea",[],""],"2027-10-31":["",[["Hirtshals","10:00","14:00"]],"Last departure from Hirtshals to Iceland"],"2027-11-01":["at sea",[],""],"2027-11-02":["",[["Tórshavn","07:30","13:00"]],"Last departure from Tórshavn to Iceland"],"2027-11-03":["",[["Seyðisfjörður","09:00",null]],""],"2027-11-04":["",[["Seyðisfjörður",null,"20:00"]],"Last departure from Iceland"],"2027-11-05":["",[["Tórshavn","16:00","20:00"]],""],"2027-11-06":["at sea",[],""],"2027-11-07":["",[["Hirtshals","10:00","14:00"]],""],"2027-11-08":["at sea",[],""],"2027-11-09":["",[["Tórshavn","07:30","13:00"]],""],"2027-11-10":["",[["Seyðisfjörður","09:00",null]],""],"2027-11-11":["",[["Seyðisfjörður",null,"20:00"]],""],"2027-11-12":["",[["Tórshavn","16:00","20:00"]],""],"2027-11-13":["at sea",[],""],"2027-11-14":["",[["Hirtshals","10:00","14:00"]],""],"2027-11-15":["at sea",[],""],"2027-11-16":["",[["Tórshavn","07:30","13:00"]],""],"2027-11-17":["",[["Seyðisfjörður","09:00",null]],""],"2027-11-18":["",[["Seyðisfjörður",null,"20:00"]],""],"2027-11-19":["",[["Tórshavn","16:00","20:00"]],""],"2027-11-20":["at sea",[],""],"2027-11-21":["",[["Hirtshals","10:00","14:00"]],""],"2027-11-22":["at sea",[],""],"2027-11-23":["",[["Tórshavn","07:30",null]],""],"2027-11-24":["in port: Tórshavn",[],""],"2027-11-25":["in port: Tórshavn",[],""],"2027-11-26":["",[["Tórshavn",null,"20:00"]],""],"2027-11-27":["at sea",[],""],"2027-11-28":["",[["Hirtshals","10:00","14:00"]],""],"2027-11-29":["at sea",[],""],"2027-11-30":["",[["Tórshavn","07:30",null]],""],"2027-12-01":["in port: Tórshavn",[],""],"2027-12-02":["in port: Tórshavn",[],""],"2027-12-03":["",[["Tórshavn",null,"20:00"]],""],"2027-12-04":["at sea",[],""],"2027-12-05":["",[["Hirtshals","10:00","14:00"]],""],"2027-12-06":["at sea",[],""],"2027-12-07":["",[["Tórshavn","07:30",null]],""],"2027-12-08":["in port: Tórshavn",[],""],"2027-12-09":["in port: Tórshavn",[],""],"2027-12-10":["",[["Tórshavn",null,"20:00"]],""],"2027-12-11":["at sea",[],""],"2027-12-12":["",[["Hirtshals","10:00","14:00"]],""],"2027-12-13":["at sea",[],""],"2027-12-14":["",[["Tórshavn","07:30",null]],""],"2027-12-15":["in port: Tórshavn",[],""],"2027-12-16":["in port: Tórshavn",[],""],"2027-12-17":["",[["Tórshavn",null,"20:00"]],""],"2027-12-18":["at sea",[],""],"2027-12-19":["",[["Hirtshals","10:00","14:00"]],""],"2027-12-20":["at sea",[],""],"2027-12-21":["",[["Tórshavn","07:30",null]],""],"2027-12-22":["in port: Tórshavn",[],""],"2027-12-23":["in port: Tórshavn",[],""],"2027-12-24":["",[["Tórshavn",null,"20:00"]],""],"2027-12-25":["at sea",[],""],"2027-12-26":["",[["Hirtshals","10:00","14:00"]],""],"2027-12-27":["at sea",[],""],"2027-12-28":["",[["Tórshavn","07:30",null]],""],"2027-12-29":["in port: Tórshavn",[],""],"2027-12-30":["in port: Tórshavn",[],""],"2027-12-31":["",[["Tórshavn",null,"20:00"]],""]};
+const sailingRange = () => { const k = Object.keys(SAILING).sort(); return [k[0], k[k.length - 1]]; };
+// Port calls for a day: a manual change on the day page wins, then the sailing schedule, then the standard week.
+// arr/dep = the call used for signing on/off (Tórshavn if the ship calls there that day, otherwise the first call).
+function portFor(date, day) {
+  if (day && day.port) return {...day.port, calls: [['Changed today', day.port.arr, day.port.dep]], label: '', source: 'day'};
+  const sd = SAILING[date];
+  if (sd) {
+    const calls = sd[1], main = calls.find(c => c[0] === 'Tórshavn') || calls[0];
+    return {arr: main ? main[1] : null, dep: main ? main[2] : null, calls, label: sd[0], note: sd[2], source: 'sailing'};
+  }
+  const w = (cfg().port || {})[WD[wdIndex(date)]] || {arr: null, dep: null};
+  return {arr: w.arr, dep: w.dep, calls: w.arr || w.dep ? [['', w.arr, w.dep]] : [], label: '', source: 'week'};
+}
+const callText = c => `${c[0] ? c[0] + ' ' : ''}${c[1] ? 'arr ' + c[1] : ''}${c[1] && c[2] ? ' – ' : ''}${c[2] ? 'dep ' + c[2] : ''}`;
 const timeOptsNone = sel => `<option value=""${sel ? '' : ' selected'}>—</option>` + timeOpts(sel);
+
+// Opening hours from OPENING_HOURS_2026.xls (ship time), per season, per sales point, per weekday.
+// '?' closing times = 02:30; times after midnight belong to the previous schedule day.
+const SEASON_LABELS = {winter: 'Winter', shoulder: 'Shoulder', high: 'High season'};
+const OPENING_2026 = {"winter":{"laterna":{"mon":{"periods":[{"open":"09:00","close":"00:00"}]},"tue":{"periods":[]},"wed":{"periods":[]},"thu":{"periods":[]},"fri":{"periods":[{"open":"18:00","close":"00:00"}]},"sat":{"periods":[{"open":"09:00","close":"00:00"}]},"sun":{"periods":[{"open":"08:00","close":"10:00"},{"open":"12:30","close":"00:00"}]}},"undirhusid":{"mon":{"periods":[]},"tue":{"periods":[]},"wed":{"periods":[]},"thu":{"periods":[]},"fri":{"periods":[]},"sat":{"periods":[]},"sun":{"periods":[]}},"noatun":{"mon":{"periods":[{"open":"07:00","close":"21:00"}]},"tue":{"periods":[{"open":"06:00","close":"07:30"}]},"wed":{"periods":[]},"thu":{"periods":[]},"fri":{"periods":[{"open":"18:00","close":"21:00"}]},"sat":{"periods":[{"open":"07:00","close":"21:00"}]},"sun":{"periods":[{"open":"07:00","close":"10:00"},{"open":"12:30","close":"21:00"}]}},"skansagardur":{"mon":{"periods":[]},"tue":{"periods":[]},"wed":{"periods":[]},"thu":{"periods":[]},"fri":{"periods":[]},"sat":{"periods":[]},"sun":{"periods":[]}},"munkastova":{"mon":{"periods":[{"open":"12:00","close":"14:00"},{"open":"18:00","close":"20:00"}]},"tue":{"periods":[]},"wed":{"periods":[]},"thu":{"periods":[]},"fri":{"periods":[{"open":"18:00","close":"21:00"}]},"sat":{"periods":[{"open":"12:00","close":"14:00"},{"open":"18:00","close":"20:00"}]},"sun":{"periods":[{"open":"18:00","close":"20:00"}]}}},"shoulder":{"undirhusid":{"mon":{"periods":[{"open":"09:00","close":"02:30"}]},"tue":{"periods":[{"open":"10:00","close":"02:30"}]},"wed":{"periods":[{"open":"17:00","close":"02:30"}]},"thu":{"periods":[{"open":"17:00","close":"02:30"}]},"fri":{"periods":[{"open":"09:00","close":"02:30"}]},"sat":{"periods":[{"open":"09:00","close":"02:30"}]},"sun":{"periods":[{"open":"12:00","close":"02:30"}]}},"laterna":{"mon":{"periods":[{"open":"08:00","close":"02:30"}]},"tue":{"periods":[{"open":"07:00","close":"02:30"}]},"wed":{"periods":[{"open":"07:00","close":"10:00"},{"open":"17:00","close":"02:30"}]},"thu":{"periods":[{"open":"17:00","close":"02:30"}]},"fri":{"periods":[{"open":"08:00","close":"02:30"}]},"sat":{"periods":[{"open":"08:00","close":"02:30"}]},"sun":{"periods":[{"open":"07:00","close":"10:00"},{"open":"12:30","close":"02:30"}]}},"noatun":{"mon":{"periods":[{"open":"07:00","close":"21:00"}]},"tue":{"periods":[{"open":"06:00","close":"21:00"}]},"wed":{"periods":[{"open":"07:00","close":"18:00"}]},"thu":{"periods":[{"open":"07:00","close":"22:00"}]},"fri":{"periods":[{"open":"07:00","close":"22:00"}]},"sat":{"periods":[{"open":"07:00","close":"21:00"}]},"sun":{"periods":[{"open":"07:00","close":"10:00"},{"open":"12:30","close":"21:00"}]}},"skansagardur":{"mon":{"periods":[{"open":"07:00","close":"10:00"},{"open":"17:30","close":"21:00"}]},"tue":{"periods":[{"open":"06:00","close":"09:00"},{"open":"17:30","close":"21:00"}]},"wed":{"periods":[{"open":"07:00","close":"10:00"},{"open":"18:30","close":"22:00"}]},"thu":{"periods":[{"open":"07:00","close":"10:00"},{"open":"18:30","close":"22:00"}]},"fri":{"periods":[{"open":"07:00","close":"10:00"},{"open":"18:00","close":"21:30"}]},"sat":{"periods":[{"open":"07:00","close":"10:00"},{"open":"17:30","close":"21:00"}]},"sun":{"periods":[{"open":"07:00","close":"10:00"},{"open":"17:30","close":"21:00"}]}},"munkastova":{"mon":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"tue":{"periods":[{"open":"13:00","close":"15:00"},{"open":"17:30","close":"21:00"}]},"wed":{"periods":[]},"thu":{"periods":[{"open":"18:00","close":"21:30"}]},"fri":{"periods":[{"open":"12:00","close":"14:00"},{"open":"18:00","close":"21:30"}]},"sat":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"sun":{"periods":[{"open":"17:30","close":"21:00"}]}}},"high":{"undirhusid":{"mon":{"periods":[{"open":"09:00","close":"02:30"}]},"tue":{"periods":[{"open":"08:00","close":"02:30"}]},"wed":{"periods":[{"open":"09:00","close":"02:30"}]},"thu":{"periods":[{"open":"08:00","close":"02:30"}]},"fri":{"periods":[{"open":"09:00","close":"03:00"}]},"sat":{"periods":[{"open":"09:00","close":"11:30"},{"open":"13:00","close":"02:30"}]},"sun":{"periods":[{"open":"09:00","close":"02:30"}]}},"laterna":{"mon":{"periods":[{"open":"08:00","close":"02:30"}]},"tue":{"periods":[{"open":"06:30","close":"02:30"}]},"wed":{"periods":[{"open":"08:00","close":"02:30"}]},"thu":{"periods":[{"open":"08:00","close":"02:30"}]},"fri":{"periods":[{"open":"08:00","close":"02:30"}]},"sat":{"periods":[{"open":"08:00","close":"11:30"},{"open":"13:00","close":"02:30"}]},"sun":{"periods":[{"open":"08:00","close":"02:30"}]}},"noatun":{"mon":{"periods":[{"open":"07:00","close":"22:00"}]},"tue":{"periods":[{"open":"06:00","close":"22:00"}]},"wed":{"periods":[{"open":"07:00","close":"22:00"}]},"thu":{"periods":[{"open":"06:30","close":"22:00"},{"open":"01:00","close":"04:30"}]},"fri":{"periods":[{"open":"07:00","close":"22:00"}]},"sat":{"periods":[{"open":"07:00","close":"11:30"},{"open":"13:00","close":"22:00"}]},"sun":{"periods":[{"open":"07:00","close":"01:00"}]}},"skansagardur":{"mon":{"periods":[{"open":"07:00","close":"10:00"},{"open":"17:30","close":"21:00"}]},"tue":{"periods":[{"open":"06:00","close":"08:30"},{"open":"17:30","close":"21:00"}]},"wed":{"periods":[{"open":"07:00","close":"10:00"},{"open":"17:30","close":"21:00"}]},"thu":{"periods":[{"open":"06:30","close":"09:30"},{"open":"17:30","close":"21:00"}]},"fri":{"periods":[{"open":"07:00","close":"10:00"},{"open":"17:30","close":"21:00"}]},"sat":{"periods":[{"open":"07:00","close":"10:00"},{"open":"17:30","close":"21:00"}]},"sun":{"periods":[{"open":"07:00","close":"10:00"},{"open":"17:30","close":"21:00"}]}},"munkastova":{"mon":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"tue":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"wed":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"thu":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"fri":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"sat":{"periods":[{"open":"17:30","close":"21:00"}]},"sun":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]}}}};
+// Which season applies when (from the sailing schedules). Edit in Setup.
+const DEFAULT_SEASON_RANGES = [
+  {from: '2026-09-05', to: '2026-11-22', season: 'shoulder'},
+  {from: '2026-11-23', to: '2027-03-27', season: 'winter'},
+  {from: '2027-03-28', to: '2027-05-28', season: 'shoulder'},
+  {from: '2027-05-29', to: '2027-09-05', season: 'high'},
+  {from: '2027-09-06', to: '2027-11-20', season: 'shoulder'},
+  {from: '2027-11-21', to: '2027-12-31', season: 'winter'}
+];
+function loadOpening2026(c) {
+  c.seasons = {};
+  Object.keys(SEASON_LABELS).forEach(k => c.seasons[k] = {label: SEASON_LABELS[k], hours: clone(OPENING_2026[k] || {})});
+}
 
 // Findings from the 2026 summer schedules (weeks 18-37)
 function applyV7(c) {
@@ -405,6 +444,12 @@ function ensureConfig(c) {
   }
   if (c.rulesVersion < 5) { if (!c.fixedRules.some(r => r.type === 'cover' && r.sp === 'placeur') && c.salesPoints.some(sp => sp.id === 'placeur')) c.fixedRules.push({type: 'cover', sp: 'placeur'}); c.rulesVersion = 6; changed = true; }
   if (c.rulesVersion === 6) { applyV7(c); c.rulesVersion = 7; changed = true; }
+  if (!c.seasons) {
+    loadOpening2026(c); c.seasonRanges = clone(DEFAULT_SEASON_RANGES);
+    // cleaning on closed days: only on Wednesdays (Undirhusid and Munkastova), otherwise every closed day in winter
+    c.salesPoints.forEach(sp => { if (sp.closedClean && !sp.closedClean.days) sp.closedClean.days = ['wed']; });
+    changed = true;
+  }
   c.rules ||= {};
   if ('maxShiftH' in c.rules) { delete c.rules.maxShiftH; c.rules.minShiftH = 2; changed = true; }
   const RULE_DEFAULTS = {minBreakBlockH: 7.5, signOffBeforeDepMin: 60, maxBeforeOpenMin: 60, minShiftH: 2, dayHours: 10, signHours: 5, minSplitH: 2, minRestH: 6, mealBreakMin: 30,
@@ -497,10 +542,29 @@ function getDay(date) {
   }
   return d;
 }
+const seasonName = k => { const l = (cfg().seasons[k] || {}).label || k; return /season/i.test(l) ? l : l + ' season'; };
+function seasonFor(date) {
+  const r = (cfg().seasonRanges || []).find(x => x.from && x.to && date >= x.from && date <= x.to);
+  return r && cfg().seasons && cfg().seasons[r.season] ? r.season : null;
+}
+// Standard hours for a date: the season's hours (or the sales point's own week outside all seasons).
+function standardHours(sp, date) {
+  const se = seasonFor(date), wd = WD[wdIndex(date)];
+  if (se) { const sh = (cfg().seasons[se].hours || {})[sp.id]; if (sh) return normHours(sh[wd]); }
+  return normHours(sp.hours[wd]);
+}
+// Closed every day of its current season (e.g. Undirhusid in winter): no cleaning shift then.
+function closedAllSeason(sp, date) {
+  const se = seasonFor(date); if (!se) return false;
+  const sh = (cfg().seasons[se].hours || {})[sp.id]; if (!sh) return false;
+  return WD.every(d => !normHours(sh[d]).periods.length);
+}
 function spHours(sp, date, day) {
   const src = sp.hoursFrom && sp.hoursFrom !== sp.id && spById(sp.hoursFrom);
   if (src) return spHours(src, date, day);
-  return normHours((day.hours && day.hours[sp.id]) || sp.hours[WD[wdIndex(date)]]);
+  if (day.hours && day.hours[sp.id]) return normHours(day.hours[sp.id]);
+  if ((SAILING[date] || [])[0] === 'no sailing') return CLOSED(); // ship not in service
+  return standardHours(sp, date);
 }
 // Which half-hours an employee may work at a sales point (from their ticked positions).
 function empMask(e, spId) {
@@ -523,7 +587,7 @@ function computeNeed(date, day, planning = true) {
     const h = spHours(sp, date, day);
     if (!h.periods.length) {
       const cc = sp.closedClean; // closed today: one person for cleaning
-      if (cc && cc.on) for (let s = toSlot(cc.from); s < endSlot(cc.to); s++) arr[s] = 1;
+      if (cc && cc.on && (!cc.days || cc.days.includes(WD[wdIndex(date)])) && (SAILING[date] || [])[0] !== 'no sailing' && !closedAllSeason(sp, date)) for (let s = toSlot(cc.from); s < endSlot(cc.to); s++) arr[s] = 1;
       continue;
     }
     const pre = Math.ceil((+sp.prepMin || 0) / 30), post = Math.ceil((+sp.closeMin || 0) / 30);
@@ -550,8 +614,10 @@ function computeNeed(date, day, planning = true) {
     // Port calls: at least "people" staff around arrival/departure, only when passengers are above "minPax"
     if (dr && dr.sp === sp.id && +dr.people > 0 && (+day.pax || 0) > (+dr.minPax || 0)) {
       const pc = portFor(date, day), add = (a, b) => { for (let s = Math.max(0, a); s < Math.min(SLOTS, b); s++) arr[s] = Math.max(arr[s], +dr.people); };
-      if (pc.arr) add(toSlot(pc.arr) - Math.round(dr.beforeArrMin / 30), toSlot(pc.arr));
-      if (pc.dep) add(toSlot(pc.dep), toSlot(pc.dep) + Math.round(dr.afterDepMin / 30));
+      (pc.calls || []).forEach(([, a, d]) => {   // every arrival and departure of the day
+        if (a) add(toSlot(a) - Math.round(dr.beforeArrMin / 30), toSlot(a));
+        if (d) add(toSlot(d), toSlot(d) + Math.round(dr.afterDepMin / 30));
+      });
     }
     // Bookings: +1 staff for every full "perStaff" guests, during that booking type's window, while open
     const bk = day.bookings[sp.id] || {};
@@ -1100,7 +1166,8 @@ function renderDay() {
       ${emps.filter(e => working.has(e.id)).map(e => { const sg = day.signing.includes(e.id), on = sg && day.signDir[e.id] === 'on';
         return `<button class="chip small ${sg ? 'on' : ''}" data-act="sign" data-id="${e.id}" title="Tap: signing off → signing on → neither">${esc(e.name)}${sg ? (on ? ' ⬆ on' : ' ⬇ off') : ''}</button>`; }).join('')}</div>` : ''}</div>`;
 
-  const hours = `<div class="card"><h3>Opening hours today</h3>${sps.filter(sp => !sp.hoursFrom).map(sp => {
+  const se = seasonFor(curDate), noSail = (SAILING[curDate] || [])[0] === 'no sailing';
+  const hours = `<div class="card"><h3>Opening hours today <span class="muted">${noSail ? 'no sailing: everything closed' : se ? esc(seasonName(se)) : 'standard week'}</span></h3>${sps.filter(sp => !sp.hoursFrom).map(sp => {
     const h = spHours(sp, curDate, day), ov = !!day.hours[sp.id];
     return `<div class="hblock"><div class="hrow"><span class="dot" style="background:${sp.color}"></span><span class="hname">${esc(sp.name)}</span>
       ${ov ? `<span class="mini">changed today</span><button class="link" data-act="hours-reset" data-id="${sp.id}" title="Back to standard hours">reset</button>` : ''}</div>
@@ -1108,6 +1175,7 @@ function renderDay() {
   }).join('')}
     ${(() => { const pc = portFor(curDate, day); return `<div class="hblock"><div class="hrow"><span class="dot" style="background:#444"></span><span class="hname">Port call <span class="muted">(ship time)</span></span>
       ${day.port ? `<span class="mini">changed today</span><button class="link" data-act="port-reset">reset</button>` : ''}</div>
+      ${pc.source === 'sailing' ? `<div class="sailing">${pc.calls.length ? pc.calls.map(c => `<b>${esc(c[0])}</b> ${c[1] ? 'arr ' + c[1] : ''}${c[1] && c[2] ? ' – ' : ''}${c[2] ? 'dep ' + c[2] : ''}`).join('<br>') : esc(pc.label || 'at sea')}${pc.note ? `<div class="muted">${esc(pc.note)}</div>` : ''}<div class="muted">from the sailing schedule</div></div>` : ''}
       <div class="periods"><span class="per">Arrival <select data-ch="port" data-f="arr">${timeOptsNone(pc.arr)}</select></span>
       <span class="per">Departure <select data-ch="port" data-f="dep">${timeOptsNone(pc.dep)}</select></span></div></div>`; })()}</div>`;
 
@@ -1293,11 +1361,18 @@ function hoursTarget(el) {
     const day = getDay(curDate), h = spHours(sp, curDate, day);
     return {h, commit: () => { day.hours[sp.id] = h; saveDay(curDate); scheduleRender(); }};
   }
-  const d = el.dataset.d, h = normHours(sp.hours[d]);
+  const d = el.dataset.d, se = el.dataset.season;
+  if (se && cfg().seasons[se]) {
+    const sh = (cfg().seasons[se].hours ||= {}), h = normHours((sh[sp.id] || {})[d]);
+    return {h, commit: () => { (sh[sp.id] ||= {})[d] = h; saveConfig(); scheduleRender(); }};
+  }
+  const h = normHours(sp.hours[d]);
   return {h, commit: () => { sp.hours[d] = h; saveConfig(); scheduleRender(); }};
 }
 
 function renderSetup() {
+  if (ui.hoursSeason === undefined) ui.hoursSeason = seasonFor(curDate) || 'shoulder';
+  const hs = ui.hoursSeason && cfg().seasons && cfg().seasons[ui.hoursSeason] ? ui.hoursSeason : '';
   const {salesPoints: sps, employees: emps, rules} = cfg();
   const spCards = sps.map(sp => `<div class="card">
     <div class="sp-top">
@@ -1313,7 +1388,8 @@ function renderSetup() {
       <label>Arrive before opening (min) <input type="number" min="0" step="30" value="${sp.prepMin}" data-ch="sp" data-id="${sp.id}" data-f="prepMin"></label>
       <label>Stay after closing (min) <input type="number" min="0" step="30" value="${sp.closeMin}" data-ch="sp" data-id="${sp.id}" data-f="closeMin"></label>
       ${sp.hoursFrom ? '' : `<label>Cleaning shift when closed <span class="per"><input type="checkbox" style="width:auto" ${sp.closedClean && sp.closedClean.on ? 'checked' : ''} data-ch="clean" data-id="${sp.id}" data-f="on">
-        <select data-ch="clean" data-id="${sp.id}" data-f="from" ${sp.closedClean && sp.closedClean.on ? '' : 'disabled'}>${timeOpts((sp.closedClean || {}).from || '12:00')}</select>–<select data-ch="clean" data-id="${sp.id}" data-f="to" ${sp.closedClean && sp.closedClean.on ? '' : 'disabled'}>${endOpts((sp.closedClean || {}).to || '17:00')}</select></span></label>`}
+        <select data-ch="clean" data-id="${sp.id}" data-f="from" ${sp.closedClean && sp.closedClean.on ? '' : 'disabled'}>${timeOpts((sp.closedClean || {}).from || '12:00')}</select>–<select data-ch="clean" data-id="${sp.id}" data-f="to" ${sp.closedClean && sp.closedClean.on ? '' : 'disabled'}>${endOpts((sp.closedClean || {}).to || '17:00')}</select></span></label>
+      ${sp.closedClean && sp.closedClean.on ? `<label>…on these days when closed <span class="per">${WD.map((d, i) => `<label class="mini"><input type="checkbox" style="width:auto" ${!sp.closedClean.days || sp.closedClean.days.includes(d) ? 'checked' : ''} data-ch="clean-day" data-id="${sp.id}" data-d="${d}">${WDL[i].slice(0, 2)}</label>`).join('')}</span></label>` : ''}`}
       ${sp.morningPrep ? `<label>Breakfast: arrive before (min) <input type="number" min="0" step="30" value="${sp.morningPrep.before}" data-ch="mprep" data-id="${sp.id}" data-f="before"></label>
       <label>Breakfast: stay after (min) <input type="number" min="0" step="30" value="${sp.morningPrep.after}" data-ch="mprep" data-id="${sp.id}" data-f="after"></label>
       <label>Breakfast: staff (0 = same as above) <input type="number" min="0" value="${sp.morningPrep.staff || 0}" data-ch="mprep" data-id="${sp.id}" data-f="staff"></label>` : ''}
@@ -1326,11 +1402,11 @@ function renderSetup() {
       <td><input type="number" min="0" value="${t.perStaff}" data-ch="bt" data-id="${sp.id}" data-i="${i}" data-f="perStaff" style="width:60px"></td>
       <td><button class="x" data-act="bt-del" data-id="${sp.id}" data-i="${i}" title="Remove booking type">✕</button></td></tr>`).join('')}
     <tr><td colspan="4"><button class="link" data-act="bt-add" data-id="${sp.id}">+ booking type</button></td></tr></table>
-    <table><tr><th>Day</th><th>Opening periods</th></tr>
+    <table><tr><th>Day</th><th>Opening periods <span class="muted">${hs ? esc(seasonName(hs)) : 'outside the seasons'}</span></th></tr>
     ${WD.map((d, i) => `<tr><td style="vertical-align:top;padding-top:8px">${WDL[i].slice(0, 3)}</td>
-      <td>${periodsEditor(normHours(sp.hours[d]), `data-scope="sp" data-id="${sp.id}" data-d="${d}"`)}</td></tr>`).join('')}
+      <td>${periodsEditor(hs ? normHours(((cfg().seasons[hs].hours || {})[sp.id] || {})[d]) : normHours(sp.hours[d]), `data-scope="sp" data-id="${sp.id}" data-d="${d}" data-season="${hs || ''}"`)}</td></tr>`).join('')}
     </table>
-    <button class="link" data-act="sp-copyhours" data-id="${sp.id}">Copy Monday's hours to every day</button>`}
+    <button class="link" data-act="sp-copyhours" data-id="${sp.id}" data-season="${hs || ''}">Copy Monday's hours to every day</button>`}
   </div>`).join('');
 
   const positions = cfg().positions;
@@ -1374,7 +1450,8 @@ function renderSetup() {
           <td><button class="x" data-act="pax-del" data-id="${sp.id}" data-i="${i}" title="Remove row">✕</button></td></tr>`).join('')}
         <tr><td colspan="5"><button class="link" data-act="pax-add" data-id="${sp.id}">+ row</button></td></tr></table></div>`).join('')}</div>
     </div>
-    <div class="card"><h3>Port calls <span class="muted">ship time, standard week</span></h3>
+    <div class="card"><h3>Port calls <span class="muted">ship time</span></h3>
+      <p class="help"><b>Sailing schedule loaded:</b> ${esc(SAILING_SOURCE)}, ${(r => fmtDate(r[0]) + ' – ' + fmtDate(r[1]))(sailingRange())}. Times are converted to ship time. Days inside it use the sailing schedule; any other day uses the standard week below.</p>
       <table style="max-width:460px"><tr><th>Day</th><th>Arrival</th><th>Departure</th></tr>
       ${WD.map((d, i) => { const pc = (cfg().port || {})[d] || {}; return `<tr><td>${WDL[i].slice(0, 3)}</td><td><select data-ch="portw" data-d="${d}" data-f="arr">${timeOptsNone(pc.arr)}</select></td><td><select data-ch="portw" data-d="${d}" data-f="dep">${timeOptsNone(pc.dep)}</select></td></tr>`; }).join('')}</table>
       ${cfg().dockRule ? `<div class="fields" style="max-width:640px;margin-top:10px">
@@ -1382,7 +1459,7 @@ function renderSetup() {
         <label>…only above (passengers) <input type="number" min="0" step="50" value="${cfg().dockRule.minPax}" data-ch="dock" data-f="minPax"></label>
         <label>Minutes before arrival <input type="number" min="0" step="30" value="${cfg().dockRule.beforeArrMin}" data-ch="dock" data-f="beforeArrMin"></label>
         <label>Minutes after departure <input type="number" min="0" step="30" value="${cfg().dockRule.afterDepMin}" data-ch="dock" data-f="afterDepMin"></label></div>` : ''}
-      <p class="help" style="margin:6px 0 0">A single day can be changed on the day page, under Opening hours today.</p>
+      <p class="help" style="margin:6px 0 0">Standard week (used outside the sailing schedule). A single day can always be changed on the day page, under Opening hours today.</p>
     </div>
     <div class="card"><h3>Fixed shifts <span class="muted">always applied first when generating</span></h3>
       <ul style="margin:0;padding-left:18px">${(cfg().fixedRules || []).map(r => `<li>${ruleText(r)}</li>`).join('')}
@@ -1409,9 +1486,21 @@ function renderSetup() {
     </div>
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:18px 0 10px">
       <h3 style="margin:0">Sales points</h3>
-      <span class="muted" style="font-size:13px">Standard hours: M/F Norröna shoulder season (15.03–30.05 &amp; 05.09–22.11.2026). Closing times marked "?" on the sheet are set to ${LATE}.</span>
-      <button data-act="load-norrona" style="margin-left:auto">Reload Norröna shoulder hours</button>
+      <span class="muted" style="font-size:13px">Opening hours from OPENING_HOURS_2026 (ship time). Closing times marked "?" are set to ${LATE}.</span>
+      <button data-act="load-opening" style="margin-left:auto">Reload hours from OPENING_HOURS_2026</button>
     </div>
+    <div class="card"><h3>Seasons <span class="muted">which opening hours apply when</span></h3>
+      <table style="max-width:620px"><tr><th>From</th><th>To</th><th>Season</th><th></th></tr>
+      ${(cfg().seasonRanges || []).map((r, i) => `<tr${seasonFor(curDate) === r.season && curDate >= r.from && curDate <= r.to ? ' class="cur"' : ''}>
+        <td><input type="date" value="${r.from}" data-ch="srange" data-i="${i}" data-f="from"></td>
+        <td><input type="date" value="${r.to}" data-ch="srange" data-i="${i}" data-f="to"></td>
+        <td><select data-ch="srange" data-i="${i}" data-f="season">${Object.keys(cfg().seasons || {}).map(k => `<option value="${k}" ${r.season === k ? 'selected' : ''}>${esc(cfg().seasons[k].label)}</option>`).join('')}</select></td>
+        <td><button class="x" data-act="srange-del" data-i="${i}" title="Remove">✕</button></td></tr>`).join('')}
+      <tr><td colspan="4"><button class="link" data-act="srange-add">+ date range</button></td></tr></table>
+      <p class="help" style="margin:6px 0 0">Days outside every range use each sales point's "outside the seasons" hours. Days with no sailing (e.g. 1–16 Jan 2027) are closed. A sales point that is closed all week in a season gets no cleaning shift in that season. A single day can still be changed on the day page.</p>
+    </div>
+    <div class="seg" style="margin:0 0 10px">${Object.keys(cfg().seasons || {}).map(k => `<button data-act="hours-season" data-v="${k}" class="${hs === k ? 'on' : ''}">${esc(cfg().seasons[k].label)}</button>`).join('')}<button data-act="hours-season" data-v="" class="${hs ? '' : 'on'}">Outside the seasons</button></div>
+    <span class="muted" style="font-size:12.5px;margin-left:8px">Editing opening hours for: <b>${hs ? esc(seasonName(hs)) : 'days outside the seasons'}</b></span>
     <div class="setup-grid">${spCards}</div>
     <div class="addrow" style="margin-top:4px;max-width:420px"><input id="newSp" type="text" placeholder="New sales point name"><button data-act="sp-add">Add sales point</button></div>`;
 }
@@ -1572,9 +1661,12 @@ document.addEventListener('click', e => {
       t.commit(); return;
     }
     case 'per-del': { const t = hoursTarget(b); t.h.periods.splice(+b.dataset.i, 1); t.commit(); return; }
-    case 'load-norrona':
-      if (!confirm('Replace the standard weekly hours of all five sales points with the Norröna shoulder-season hours?')) return;
-      applyNorrona(C); saveConfig(); render(); return;
+    case 'load-opening':
+      if (!confirm('Replace the winter, shoulder and high-season opening hours with the ones from OPENING_HOURS_2026? Your changes to them will be lost.')) return;
+      loadOpening2026(C); saveConfig(); render(); return;
+    case 'hours-season': ui.hoursSeason = b.dataset.v; render(); return;
+    case 'srange-add': { const last = C.seasonRanges[C.seasonRanges.length - 1]; C.seasonRanges.push({from: last ? addDays(last.to, 1) : todayStr(), to: last ? addDays(last.to, 90) : addDays(todayStr(), 90), season: 'shoulder'}); saveConfig(); render(); return; }
+    case 'srange-del': C.seasonRanges.splice(+b.dataset.i, 1); saveConfig(); render(); return;
     case 'gen':
       if (!day.working.length) { alert("Tick who's in today first."); return; }
       if (day.shifts.length && !confirm('Replace the current schedule for this day?')) return;
@@ -1619,7 +1711,10 @@ document.addEventListener('click', e => {
     }
     case 'bt-add': { const sp = spById(id); sp.bookingTypes.push(BT(uid(), 'New type', '12:00', '14:00')); saveConfig(); render(); return; }
     case 'bt-del': { const sp = spById(id), t = sp.bookingTypes[+b.dataset.i]; if (!confirm(`Remove booking type "${t.label}"?`)) return; sp.bookingTypes.splice(+b.dataset.i, 1); saveConfig(); render(); return; }
-    case 'sp-copyhours': { const sp = spById(id); WD.forEach(d => sp.hours[d] = {...sp.hours.mon}); saveConfig(); render(); return; }
+    case 'sp-copyhours': { const sp = spById(id), se = b.dataset.season;
+      if (se && C.seasons[se]) { const sh = (C.seasons[se].hours[sp.id] ||= {}); WD.forEach(d => sh[d] = clone(normHours(sh.mon))); }
+      else WD.forEach(d => sp.hours[d] = clone(normHours(sp.hours.mon)));
+      saveConfig(); render(); return; }
     case 'emp-add': {
       const name = $('#newEmp').value.trim(); if (!name) return;
       C.employees.push({id: uid(), name, headAt: null, allowed: C.positions.map(p => p.key)});
@@ -1652,11 +1747,13 @@ document.addEventListener('change', e => {
   if (ch === 'date') { if (el.value) setDate(el.value); return; }
   if (ch === 'book') return; // handled on 'input' below, without redrawing the page
   if (ch === 'sp-flag') { spById(id)[f] = el.checked ? 1 : 0; saveConfig(); scheduleRender(); return; }
+  if (ch === 'srange') { const r = C.seasonRanges[+el.dataset.i]; r[f] = el.value; C.seasonRanges.sort((a, b) => (a.from || '').localeCompare(b.from || '')); saveConfig(); scheduleRender(); return; }
   if (ch === 'paxr') { const r = spById(id).paxRules[+el.dataset.i]; r[f] = Math.max(0, parseInt(el.value, 10) || 0); saveConfig(); scheduleRender(); return; }
   if (ch === 'pax') return; // saved on input
-  if (ch === 'port') { const day = getDay(curDate); day.port = {...portFor(curDate, day), [f]: el.value || null}; saveDay(curDate); scheduleRender(); return; }
+  if (ch === 'port') { const day = getDay(curDate), pc = portFor(curDate, day); day.port = {arr: pc.arr, dep: pc.dep, [f]: el.value || null}; saveDay(curDate); scheduleRender(); return; }
   if (ch === 'portw') { C.port[el.dataset.d] = {...(C.port[el.dataset.d] || {}), [f]: el.value || null}; saveConfig(); scheduleRender(); return; }
   if (ch === 'dock') { C.dockRule[f] = Math.max(0, parseFloat(el.value) || 0); saveConfig(); scheduleRender(); return; }
+  if (ch === 'clean-day') { const sp = spById(id), cc = sp.closedClean; const all = cc.days || [...WD]; cc.days = el.checked ? [...new Set([...all, el.dataset.d])] : all.filter(x => x !== el.dataset.d); saveConfig(); scheduleRender(); return; }
   if (ch === 'clean') { const sp = spById(id); sp.closedClean = {from: '12:00', to: '17:00', on: false, ...(sp.closedClean || {}), [f]: f === 'on' ? el.checked : el.value}; saveConfig(); scheduleRender(); return; }
   if (ch === 'mprep') { const sp = spById(id); sp.morningPrep = {...(sp.morningPrep || {}), [f]: Math.max(0, parseFloat(el.value) || 0)}; saveConfig(); scheduleRender(); return; }
   if (ch === 'per') { const t = hoursTarget(el); t.h.periods[+el.dataset.i][f] = el.value; t.commit(); return; }
