@@ -353,6 +353,20 @@ function ruleText(r) {
 function portFor(date, day) { return (day && day.port) || (cfg().port || {})[WD[wdIndex(date)]] || {arr: null, dep: null}; }
 const timeOptsNone = sel => `<option value=""${sel ? '' : ' selected'}>—</option>` + timeOpts(sel);
 
+// Findings from the 2026 summer schedules (weeks 18-37)
+function applyV7(c) {
+  const sp = id => c.salesPoints.find(x => x.id === id);
+  const sk = sp('skansagardur');
+  if (sk) { sk.closeMin = 90; sk.baseStaff = 6; sk.morningPrep = {...(sk.morningPrep || {before: 0, after: 90}), staff: 5};
+    (sk.bookingTypes || []).forEach(t => t.perStaff = 0); }               // 5 at breakfast, 6 at dinner, not driven by bookings
+  const no = sp('noatun'); if (no) no.closeMin = 60;                       // stays 1h after closing
+  const pl = sp('placeur'); if (pl) pl.prepMin = 30;                       // starts 30 min before the buffet opens
+  const mk = sp('munkastova');
+  if (mk) { mk.closeMin = 60; mk.midCloseMin = 0; // 1h after dinner; after lunch the headwaiter's 12-15 covers it
+    (mk.bookingTypes || []).forEach(t => { if (t.key === 'dinner') t.perStaff = 15; }); }
+  c.rules ||= {}; c.rules.minBreakBlockH = 7.5;                            // breaks only on long blocks
+}
+
 // Bring any saved setup up to date; returns true if something changed.
 function ensureConfig(c) {
   let changed = false;
@@ -383,15 +397,17 @@ function ensureConfig(c) {
   }
   if (c.dockRule && c.dockRule.people === undefined) { c.dockRule.people = 1 + (+c.dockRule.extra || 1); c.dockRule.minPax = 500; delete c.dockRule.extra; changed = true; }
   if ((c.paxVersion || 0) < 1) { c.salesPoints.forEach(sp => { if (DEFAULT_PAX[sp.id] && !sp.paxRules) sp.paxRules = clone(DEFAULT_PAX[sp.id]); }); c.paxVersion = 1; changed = true; }
+  if ((c.rulesVersion || 0) >= 6 && c.rulesVersion < 7) { applyV7(c); c.rulesVersion = 7; changed = true; }
   if (c.rulesVersion < 6) {
     c.rules ||= {}; delete c.rules.splitOverH; c.rules.minSplitH = 2;
     const n = c.salesPoints.find(sp => sp.id === 'noatun'); if (n) n.mealCover = 2;
     if (c.rulesVersion >= 5) { c.rulesVersion = 6; changed = true; }
   }
   if (c.rulesVersion < 5) { if (!c.fixedRules.some(r => r.type === 'cover' && r.sp === 'placeur') && c.salesPoints.some(sp => sp.id === 'placeur')) c.fixedRules.push({type: 'cover', sp: 'placeur'}); c.rulesVersion = 6; changed = true; }
+  if (c.rulesVersion === 6) { applyV7(c); c.rulesVersion = 7; changed = true; }
   c.rules ||= {};
   if ('maxShiftH' in c.rules) { delete c.rules.maxShiftH; c.rules.minShiftH = 2; changed = true; }
-  const RULE_DEFAULTS = {signOffBeforeDepMin: 60, maxBeforeOpenMin: 60, minShiftH: 2, dayHours: 10, signHours: 5, minSplitH: 2, minRestH: 6, mealBreakMin: 30,
+  const RULE_DEFAULTS = {minBreakBlockH: 7.5, signOffBeforeDepMin: 60, maxBeforeOpenMin: 60, minShiftH: 2, dayHours: 10, signHours: 5, minSplitH: 2, minRestH: 6, mealBreakMin: 30,
     meals: [{label: 'Lunch', from: '11:30', to: '13:00'}, {label: 'Dinner', from: '16:30', to: '18:30'}]};
   for (const k in RULE_DEFAULTS) if (c.rules[k] === undefined) { c.rules[k] = clone(RULE_DEFAULTS[k]); changed = true; }
   (c.positions || []).forEach(p => { // day now starts 05:00
@@ -513,13 +529,16 @@ function computeNeed(date, day, planning = true) {
     const pre = Math.ceil((+sp.prepMin || 0) / 30), post = Math.ceil((+sp.closeMin || 0) / 30);
     const base = Math.max(1, +sp.baseStaff || 1);
     const open = new Array(SLOTS).fill(false);
+    const lastClose = Math.max(...h.periods.map(p => endSlot(p.close)));
     h.periods.forEach(p => {
       const o = toSlot(p.open), c = endSlot(p.close); if (c <= o) return;
       for (let s = o; s < c; s++) open[s] = true;
       // morning services (opening before 12:00) can have their own arrive/stay times
       const mp = sp.morningPrep && o < toSlot('12:00') ? sp.morningPrep : null;
-      const b4 = mp ? Math.ceil((+mp.before || 0) / 30) : pre, af = mp ? Math.ceil((+mp.after || 0) / 30) : post;
-      for (let s = Math.max(0, o - b4); s < Math.min(SLOTS, c + af); s++) arr[s] = base;
+      const b4 = mp ? Math.ceil((+mp.before || 0) / 30) : pre;
+      const af = mp ? Math.ceil((+mp.after || 0) / 30) : (c < lastClose && sp.midCloseMin !== undefined ? Math.ceil(+sp.midCloseMin / 30) : post);
+      const svcBase = mp && +mp.staff > 0 ? +mp.staff : base; // breakfast can have its own staff count
+      for (let s = Math.max(0, o - b4); s < Math.min(SLOTS, c + af); s++) arr[s] = svcBase;
     });
     // Passengers: minimum staff per shift while open
     if ((sp.paxRules || []).length) {
@@ -595,9 +614,12 @@ function placeBreaks(date, day) {
   const bl = Math.max(1, Math.ceil(R().mealBreakMin / 30));
   cfg().employees.forEach(e => {
     const mine = day.shifts.filter(s => s.emp === e.id); if (!mine.length) return;
+    const blocks = workBlocks(day, e.id), minBlock = Math.round((+R().minBreakBlockH || 0) * 2);
     R().meals.forEach(m => {
       const wS = toSlot(m.from), wE = endSlot(m.to);
       const at = k => mine.find(s => k >= s.start && k < s.end);
+      // only someone working a long block (default 7.5h+) through this meal gets a break
+      if (!blocks.some(b => b.start < wE && b.end > wS && b.end - b.start >= minBlock)) return;
       let free = 0, ok = false;
       for (let k = wS; k < wE; k++) { if (at(k)) free = 0; else if (++free >= bl) ok = true; }
       if (ok || !mine.some(s => s.start < wE && s.end > wS)) return; // already free during the meal
@@ -1293,7 +1315,8 @@ function renderSetup() {
       ${sp.hoursFrom ? '' : `<label>Cleaning shift when closed <span class="per"><input type="checkbox" style="width:auto" ${sp.closedClean && sp.closedClean.on ? 'checked' : ''} data-ch="clean" data-id="${sp.id}" data-f="on">
         <select data-ch="clean" data-id="${sp.id}" data-f="from" ${sp.closedClean && sp.closedClean.on ? '' : 'disabled'}>${timeOpts((sp.closedClean || {}).from || '12:00')}</select>–<select data-ch="clean" data-id="${sp.id}" data-f="to" ${sp.closedClean && sp.closedClean.on ? '' : 'disabled'}>${endOpts((sp.closedClean || {}).to || '17:00')}</select></span></label>`}
       ${sp.morningPrep ? `<label>Breakfast: arrive before (min) <input type="number" min="0" step="30" value="${sp.morningPrep.before}" data-ch="mprep" data-id="${sp.id}" data-f="before"></label>
-      <label>Breakfast: stay after (min) <input type="number" min="0" step="30" value="${sp.morningPrep.after}" data-ch="mprep" data-id="${sp.id}" data-f="after"></label>` : ''}
+      <label>Breakfast: stay after (min) <input type="number" min="0" step="30" value="${sp.morningPrep.after}" data-ch="mprep" data-id="${sp.id}" data-f="after"></label>
+      <label>Breakfast: staff (0 = same as above) <input type="number" min="0" value="${sp.morningPrep.staff || 0}" data-ch="mprep" data-id="${sp.id}" data-f="staff"></label>` : ''}
     </div>
     ${sp.hoursFrom && spById(sp.hoursFrom) ? `<p class="help">Open whenever <b>${esc(spById(sp.hoursFrom).name)}</b> is open, using its opening hours.</p>` : `
     <table style="margin-bottom:12px"><tr><th>Booking type</th><th>Guests come</th><th title="0 = doesn't change staffing">+1 staff per … guests</th><th></th></tr>
@@ -1364,7 +1387,8 @@ function renderSetup() {
     <div class="card"><h3>Fixed shifts <span class="muted">always applied first when generating</span></h3>
       <ul style="margin:0;padding-left:18px">${(cfg().fixedRules || []).map(r => `<li>${ruleText(r)}</li>`).join('')}
         ${cfg().salesPoints.filter(sp => sp.closedClean && sp.closedClean.on).map(sp => `<li>${esc(sp.name)}: on days it's closed, one person cleans ${sp.closedClean.from}–${sp.closedClean.to}${sp.id === 'munkastova' ? ' (someone from the usual team)' : ''}.</li>`).join('')}
-        <li>Skansagardur breakfast staff meet at opening and stay ${(spById('skansagardur') || {}).morningPrep ? spById('skansagardur').morningPrep.after / 60 : 1.5} hours after closing; dinner staff meet ${(spById('skansagardur') || {}).prepMin || 30} min before opening (change on the Skansagardur card).</li></ul>
+        ${(sk => sk ? `<li>Skansagardur: ${(sk.morningPrep || {}).staff || sk.baseStaff} at breakfast (meet at opening, stay ${((sk.morningPrep || {}).after || 0) / 60}h after closing), ${sk.baseStaff} at dinner (meet ${sk.prepMin} min before opening, stay ${sk.closeMin / 60}h after closing). Change on the Skansagardur card.</li>` : '')(spById('skansagardur'))}
+        <li>Meal breaks only for someone working at least ${R().minBreakBlockH}h in one go (change under Working-time rules).</li></ul>
       <p class="help" style="margin:8px 0 0">"Same person" rules look back at the previous days' schedules, so generate days in date order.</p>
     </div>
     <div class="card"><h3>Working-time rules <span class="muted">for all employees</span></h3>
@@ -1376,6 +1400,7 @@ function renderSetup() {
         <label>Shortest part of a split (hours) <input type="number" min="0.5" step="0.5" value="${rules.minShiftH}" data-ch="rule" data-f="minShiftH"></label>
         <label>Signing off: done before departure (min) <input type="number" min="0" step="30" value="${rules.signOffBeforeDepMin}" data-ch="rule" data-f="signOffBeforeDepMin"></label>
         <label>Never more than … before opening (min) <input type="number" min="0" step="30" value="${rules.maxBeforeOpenMin}" data-ch="rule" data-f="maxBeforeOpenMin"></label>
+        <label>Meal break only if working at least (hours in one go) <input type="number" min="0" step="0.5" value="${rules.minBreakBlockH}" data-ch="rule" data-f="minBreakBlockH"></label>
         <label>Meal break (minutes) <input type="number" min="30" step="30" value="${rules.mealBreakMin}" data-ch="rule" data-f="mealBreakMin"></label>
       </div>
       <table style="max-width:420px;margin-bottom:8px"><tr><th>Staff meal</th><th>Time</th></tr>
@@ -1639,7 +1664,7 @@ document.addEventListener('change', e => {
     const t = spById(id).bookingTypes[+el.dataset.i];
     t[f] = f === 'perStaff' ? Math.max(0, parseInt(el.value, 10) || 0) : (f === 'label' ? (el.value.trim() || t.label) : el.value);
   }
-  else if (ch === 'rule') { C.rules[f] = Math.max(['minRestH', 'signOffBeforeDepMin', 'maxBeforeOpenMin'].includes(f) ? 0 : 0.5, parseFloat(el.value) || 0); }
+  else if (ch === 'rule') { C.rules[f] = Math.max(['minRestH', 'signOffBeforeDepMin', 'maxBeforeOpenMin', 'minBreakBlockH'].includes(f) ? 0 : 0.5, parseFloat(el.value) || 0); }
   else if (ch === 'meal') { C.rules.meals[+el.dataset.i][f] = el.value; }
   else if (ch === 'sp') { const sp = spById(id); sp[f] = ['name', 'type', 'color'].includes(f) ? el.value : Math.max(0, parseFloat(el.value) || 0); }
   else if (ch === 'emp') { const em = empById(id); em[f] = f === 'headAt' ? (el.value || null) : el.value; if (f === 'headAt' && em.headAt && !empMask({...em, headAt: null}, em.headAt).some(Boolean)) em.allowed.push(...C.positions.filter(p => p.sp === em.headAt).map(p => p.key)); }
