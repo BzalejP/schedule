@@ -796,7 +796,8 @@ function generate(date, day) {
       if (!fixedStart && open - Math.round(r.beforeMin / 30) < 0) notes.push(`${sp.name} opening shift would start before 05:00; it starts at 05:00 instead.`);
       // evening opening: the closing shift covers the night alone, no separate opening shift
       const cr = closerOf(r.sp);
-      if (!fixedStart && cr && start + r.hours * 2 > closerEnd(cr, h) - cr.hours * 2 + 8) { notes.push(`${sp.name} opens in the evening today, so the closing shift covers it alone.`); return; }
+      // the closer arrives within an hour of the opener: one person covers it, no separate opening shift
+      if (!fixedStart && cr && closerEnd(cr, h) - cr.hours * 2 <= start + 2) { notes.push(`${sp.name} opens in the evening today, so the closing shift covers it alone.`); return; }
       const base = e => restOk(e, start) && inWindow(e, start, start + Math.min(r.hours * 2, targetSlots(e, day))) && (r.who === 'headwaiter' ? e.headAt === r.sp : empMask(e, r.sp)[start] && !(homeOpen(e) && e.headAt !== r.sp));
       let cands = free().filter(base), e = pickHolder(r, cands);
       if (!e) {
@@ -900,52 +901,60 @@ function generate(date, day) {
     if (!pick) break;
     assignPlan(pick.e, pick.p);
   }
-  // 3) Last resort: managers/supervisors fill what is still short (supervisors first), up to their hours
-  if (backups.length) {
-    const floor = computeNeed(date, day, false);
-    const isShort = (sp, k) => floor[sp][k] - cover[sp][k] > 0;
-    const order = [...backups].sort((a, b) => (!!b.supervisor - !!a.supervisor) || (!!a.manager - !!b.manager));
-    const blocksOf = id => { const out = []; shifts.filter(x => x.emp === id).map(x => ({start: x.start, end: x.end})).sort((a, b) => a.start - b.start)
-      .forEach(b => { const l = out[out.length - 1]; if (l && b.start <= l.end) l.end = Math.max(l.end, b.end); else out.push({...b}); }); return out; };
-    const fits = (e, a, b) => {
-      const [w0, w1] = signWindow(e, date, day);
-      if (a < w0 || b > w1 || a < earliestStart(e, date) || a < 0 || b > SLOTS) return false;
-      if (shifts.some(x => x.emp === e.id && x.start < b && x.end > a)) return false;
-      const bl = blocksOf(e.id); bl.push({start: a, end: b}); bl.sort((x, y) => x.start - y.start);
-      const m = []; bl.forEach(x => { const l = m[m.length - 1]; if (l && x.start <= l.end) l.end = Math.max(l.end, x.end); else m.push({...x}); });
-      return m.reduce((t, x) => t + x.end - x.start, 0) <= targetSlots(e, day); // no limit on parts or gaps for managers/supervisors
-    };
-    for (let guard = 0; guard < 80; guard++) {
-      const runs = [];
-      sps.forEach(sp => { let k = 0; while (k < SLOTS) { if (!isShort(sp.id, k)) { k++; continue; } let e = k; while (e < SLOTS && isShort(sp.id, e)) e++; runs.push({sp: sp.id, s: k, e}); k = e; } });
-      if (!runs.length) break;
-      runs.sort((a, b) => (b.e - b.s) - (a.e - a.s));
-      let done = false;
-      for (const r of runs) {
-        for (const e of order) {
-          const used = blocksOf(e.id).reduce((t, x) => t + x.end - x.start, 0), left = targetSlots(e, day) - used;
-          const L = Math.min(Math.max(r.e - r.s, minPart), left); if (L < 1) continue;
-          // try: start of the gap, end of the gap, and joining on to a shift they already have there
-          const tries = [[r.s, r.s + L], [r.e - L, r.e], [r.s - (L - (r.e - r.s)), r.e]];
-          const t = tries.find(([a, b]) => b - a === L && fits(e, a, b)) ||
-            [[r.s, Math.min(r.e, r.s + left)]].find(([a, b]) => b - a >= 1 && shifts.some(x => x.emp === e.id && x.sp === r.sp && (x.end === a || x.start === b)) && fits(e, a, b));
-          if (!t) continue;
-          place(e, r.sp, t[0], t[1], 'backup');
-          done = true; break;
-        }
-        if (done) break;
-      }
-      if (!done) break;
-    }
-    // merge touching backup shifts at the same place
-    backups.forEach(e => {
-      const mine = shifts.filter(x => x.emp === e.id && x.fixed === 'backup').sort((a, b) => a.start - b.start);
-      for (let i = 1; i < mine.length; i++) if (mine[i].sp === mine[i - 1].sp && mine[i].start === mine[i - 1].end) { mine[i - 1].end = mine[i].end; shifts.splice(shifts.indexOf(mine[i]), 1); mine.splice(i--, 1); }
-    });
-  }
+  // 3) Last resort: managers/supervisors fill what is still short (again after breaks; see fillWithBackups)
+  fillWithBackups(date, day, shifts, cover);
   day.genNotes = notes;
   day.prevSig = shiftSig(addDays(date, -1));
   return shifts;
+}
+
+// Managers/supervisors fill whatever is still short, anywhere, in pieces of any length
+// (even 30 minutes), up to their daily hours. Supervisors first. Returns how many shifts were added.
+function fillWithBackups(date, day, shifts, cover) {
+  const sps = cfg().salesPoints;
+  const backups = cfg().employees.filter(e => day.working.includes(e.id) && isBackup(e));
+  if (!backups.length) return 0;
+  const floor = computeNeed(date, day, false);
+  const isShort = (sp, k) => floor[sp][k] - cover[sp][k] > 0;
+  const order = [...backups].sort((a, b) => (!!b.supervisor - !!a.supervisor) || (!!a.manager - !!b.manager));
+  const used = e => shifts.filter(x => x.emp === e.id).reduce((t, x) => t + x.end - x.start, 0);
+  const fits = (e, a, b) => {
+    const [w0, w1] = signWindow(e, date, day);
+    if (a < w0 || b > w1 || a < earliestStart(e, date) || a < 0 || b > SLOTS) return false;
+    return !shifts.some(x => x.emp === e.id && x.start < b && x.end > a);
+  };
+  let added = 0;
+  for (let guard = 0; guard < 120; guard++) {
+    const runs = [];
+    sps.forEach(sp => { let k = 0; while (k < SLOTS) { if (!isShort(sp.id, k)) { k++; continue; } let e = k; while (e < SLOTS && isShort(sp.id, e)) e++; runs.push({sp: sp.id, s: k, e}); k = e; } });
+    if (!runs.length) break;
+    // mandatory places (e.g. Placeur) first, then the longest gaps
+    const must = new Set((cfg().fixedRules || []).filter(r => r.type === 'cover').map(r => r.sp));
+    runs.sort((a, b) => (must.has(b.sp) - must.has(a.sp)) || (b.e - b.s) - (a.e - a.s));
+    let done = false;
+    for (const r of runs) {
+      for (const e of order) {
+        const left = targetSlots(e, day) - used(e); if (left < 1) continue;
+        // the whole gap if they have the hours, otherwise as much of it as they can; any free stretch inside it
+        let a = r.s, b = Math.min(r.e, r.s + left);
+        while (a < r.e && !fits(e, a, a + 1)) a++;
+        if (a >= r.e) continue;
+        b = a; while (b < r.e && b - a < left && fits(e, a, b + 1)) b++;
+        if (b <= a) continue;
+        shifts.push({id: uid(), emp: e.id, sp: r.sp, start: a, end: b, fixed: 'backup'});
+        for (let k = a; k < b; k++) cover[r.sp][k]++;
+        added++; done = true; break;
+      }
+      if (done) break;
+    }
+    if (!done) break;
+  }
+  // join touching pieces at the same place
+  backups.forEach(e => {
+    const mine = shifts.filter(x => x.emp === e.id && x.fixed === 'backup').sort((a, b) => a.start - b.start);
+    for (let i = 1; i < mine.length; i++) if (mine[i].sp === mine[i - 1].sp && mine[i].start === mine[i - 1].end) { mine[i - 1].end = mine[i].end; shifts.splice(shifts.indexOf(mine[i]), 1); mine.splice(i--, 1); }
+  });
+  return added;
 }
 
 // Everyone on the schedule today, each with all their shifts, grouped under the sales point
@@ -1288,7 +1297,7 @@ function renderSetup() {
 
   $('#view-setup').innerHTML = `
     <div class="card"><h3>Employees <span class="muted">${emps.length}</span></h3>
-      <p class="help">Backup — Manager / Supervisor: only used to fill gaps nobody else can cover, at any sales point, up to ${R().dayHours}h a day in any number of parts (supervisors first). If nothing is short, they aren't scheduled.</p>
+      <p class="help">Backup — Manager / Supervisor: only used to fill gaps nobody else can cover, at any sales point, up to ${R().dayHours}h a day, in pieces of any length (even 30 min) (supervisors first). If nothing is short, they aren't scheduled.</p>
       <p class="help">★ Headwaiters are placed at their own sales point first. They're only moved elsewhere when their place is closed or already fully staffed.</p>
       <div style="overflow-x:auto"><table><tr><th>Name</th><th>Headwaiter at</th><th>Can work at</th><th></th></tr>${empRows}</table></div>
       <div class="addrow" style="margin-top:10px"><input id="newEmp" type="text" placeholder="New employee name"><button class="primary" data-act="emp-add">Add employee</button></div>
@@ -1457,7 +1466,8 @@ document.addEventListener('click', e => {
     case 'gen':
       if (!day.working.length) { alert("Tick who's in today first."); return; }
       if (day.shifts.length && !confirm('Replace the current schedule for this day?')) return;
-      try { day.shifts = generate(curDate, day); placeBreaks(curDate, day); }
+      try { day.shifts = generate(curDate, day); placeBreaks(curDate, day);
+        for (let i = 0; i < 3 && fillWithBackups(curDate, day, day.shifts, computeCover(day)); i++) placeBreaks(curDate, day); }
       catch (err) { console.error(err); alert('Sorry, the schedule could not be generated: ' + err.message + '\n\nPlease download a backup (Sync & backup) and send it to get this fixed.'); return; }
       break;
     case 'dview': ui.dview = b.dataset.v; try { localStorage.setItem('staffsched.dview', ui.dview); } catch (e) {} render(); return;
