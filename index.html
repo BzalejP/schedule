@@ -451,6 +451,7 @@ function ensureConfig(c) {
   { const t = (c.fixedRules || []).find(r => r.type === 'team' && r.sp === 'munkastova');
     if (t && !t.fixedDays) { t.fixedDays = [{season: 'shoulder', day: 'wed', start: '12:00'}, {season: 'shoulder', day: 'thu', end: '00:00'}]; changed = true; } }
   if (!c.prepStaffRule) { c.salesPoints.forEach(sp => { if (['noatun', 'laterna'].includes(sp.id)) sp.prepStaff = 1; }); c.prepStaffRule = true; changed = true; }
+  if (!c.lateMaxRule) { c.salesPoints.forEach(sp => { if (['laterna', 'undirhusid'].includes(sp.id)) sp.lateMax = 1; }); c.lateMaxRule = true; changed = true; }
   if (!c.lunchRules) { // buffet lunch (from the summer schedules): 3 people, 12:00-15:00, never more than 3
     const sk = c.salesPoints.find(x => x.id === 'skansagardur');
     if (sk) sk.lunchPrep = {before: 0, after: 60, staff: 3, max: 3};
@@ -608,6 +609,7 @@ function lunchWindow(sp, date, day) {
 function hardCaps(sp, date, day) {
   const cap = new Array(SLOTS).fill(false), w = lunchWindow(sp, date, day);
   if (w) for (let k = w[0]; k < w[1]; k++) cap[k] = true;
+  if (+sp.lateMax > 0) for (let k = toSlot('00:00'); k < SLOTS; k++) cap[k] = true; // nobody extra after midnight
   if (+sp.prepStaff > 0) {
     const h = spHours(sp, date, day), pre = Math.ceil((+sp.prepMin || 0) / 30);
     h.periods.forEach(p => { const o = toSlot(p.open); for (let k = Math.max(0, o - pre); k < o; k++) if (!isOpenAt(h, k)) cap[k] = 'prep'; });
@@ -712,6 +714,8 @@ function computeNeed(date, day, planning = true) {
       if (add) for (let s = toSlot(t.from); s < endSlot(t.to); s++) if (open[s]) arr[s] += add;
     });
     if (+sp.maxStaff > 0) for (let s = 0; s < SLOTS; s++) arr[s] = Math.min(arr[s], +sp.maxStaff);
+    // bars: after midnight one person is enough (the closer), whatever the passenger table says
+    if (+sp.lateMax > 0) for (let s = toSlot('00:00'); s < SLOTS; s++) if (arr[s] > 0) arr[s] = Math.min(arr[s], +sp.lateMax);
     for (const k in capSlots) arr[k] = Math.min(arr[k], capSlots[k]); // e.g. buffet lunch: never more than 3
     // before opening only the opener comes in (e.g. Noatun, Laterna: 1 person, 1h before)
     if (+sp.prepStaff > 0) prepSlots.forEach(k => { if (!open[k]) arr[k] = Math.min(arr[k], +sp.prepStaff); });
@@ -1098,8 +1102,11 @@ function generate(date, day) {
       if (!win) return;
       capWin[r.sp] = r.window === 'lunch' ? capWin[r.sp] : [0, SLOTS];
       const shortNow = () => need[r.sp].some((x, k) => k >= win[0] && k < win[1] && x - cover[r.sp][k] > 0);
-      const cands = () => free().filter(e => empMask(e, r.sp).some(Boolean) && !notMine(e, r) && !(homeOpen(e) && e.headAt !== r.sp))
+      // Munkastova team members are kept for Munkastova: only used here if nobody else can
+      const teamBusy = e => e.team && isOpenDay(e.team) && need[e.team].some(x => x > 1);
+      const cands = () => { const all = free().filter(e => empMask(e, r.sp).some(Boolean) && !notMine(e, r) && !(homeOpen(e) && e.headAt !== r.sp))
         .sort((a, b) => (signing.has(a.id) - signing.has(b.id)) || flex(a) - flex(b));
+        const non = all.filter(e => !teamBusy(e)); return non.length ? non : all; };
       for (let g = 0; g < 6 && shortNow(); g++) {
         let best = null;
         for (const e of cands()) {
@@ -1195,6 +1202,20 @@ function generate(date, day) {
         }
         for (let guard = 0; guard < 4 && shortNow(); guard++) {
           let placed = false;
+          // needed at lunch and at dinner: one person for both, in the headwaiter's hours
+          const sl = lunchP && shortIn(toSlot(lunchP.open), endSlot(lunchP.close) + 2);
+          const sd = dinnerP && shortIn(toSlot(dinnerP.open) - 1, endSlot(dinnerP.close) + 2);
+          if (sl && sd && r.dinner) {
+            const d0 = toSlot(r.dinner[0]);
+            const both = others().filter(e => (!check || spare(e)) && !oneBlock(e) && restOk(e, L0)).find(e => {
+              const T = targetSlots(e, day), m = empMask(e, r.sp), d1 = Math.min(SLOTS, d0 + T - (L1 - L0));
+              for (let k = L0; k < L1; k++) if (!m[k]) return false;
+              for (let k = d0; k < d1; k++) if (!m[k]) return false;
+              return d1 > d0;
+            });
+            if (both) { const T = targetSlots(both, day), lunchLen = Math.min(L1 - L0, T);
+              place(both, r.sp, L0, L0 + lunchLen, 'team', 'team'); if (T - lunchLen > 0) place(both, r.sp, d0, Math.min(SLOTS, d0 + T - lunchLen), 'team', 'team'); continue; }
+          }
           for (const e of others().filter(e => !check || spare(e))) {
             const p = bestPlan(e, 50, r.sp, 0, true); // must include the Munkastova hours
             if (p) { assignPlan(e, p); placed = true; break; }
@@ -1768,6 +1789,7 @@ function renderSetup() {
       <label>Arrive before opening (min) <input type="number" min="0" step="30" value="${sp.prepMin}" data-ch="sp" data-id="${sp.id}" data-f="prepMin"></label>
       <label>Stay after closing (min) <input type="number" min="0" step="30" value="${sp.closeMin}" data-ch="sp" data-id="${sp.id}" data-f="closeMin"></label>
       <label>People before opening (0 = everyone) <input type="number" min="0" value="${sp.prepStaff || 0}" data-ch="sp" data-id="${sp.id}" data-f="prepStaff"></label>
+      <label title="After 00:00 never more people than this (the closer works alone)">Max people after 24:00 (0 = no limit) <input type="number" min="0" value="${sp.lateMax || 0}" data-ch="sp" data-id="${sp.id}" data-f="lateMax"></label>
       ${sp.hoursFrom ? '' : `<label>Cleaning shift when closed <span class="per"><input type="checkbox" style="width:auto" ${sp.closedClean && sp.closedClean.on ? 'checked' : ''} data-ch="clean" data-id="${sp.id}" data-f="on">
         <select data-ch="clean" data-id="${sp.id}" data-f="from" ${sp.closedClean && sp.closedClean.on ? '' : 'disabled'}>${timeOpts((sp.closedClean || {}).from || '12:00')}</select>–<select data-ch="clean" data-id="${sp.id}" data-f="to" ${sp.closedClean && sp.closedClean.on ? '' : 'disabled'}>${endOpts((sp.closedClean || {}).to || '17:00')}</select></span></label>
       ${sp.closedClean && sp.closedClean.on ? `<label>…on these days when closed <span class="per">${WD.map((d, i) => `<label class="mini"><input type="checkbox" style="width:auto" ${!sp.closedClean.days || sp.closedClean.days.includes(d) ? 'checked' : ''} data-ch="clean-day" data-id="${sp.id}" data-d="${d}">${WDL[i].slice(0, 2)}</label>`).join('')}</span></label>` : ''}`}
