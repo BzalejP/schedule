@@ -156,6 +156,14 @@ dialog .row label{flex:1}
 .glegend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:10px 2px 2px;font-size:12px;color:var(--ink)}
 .glegend span{display:flex;align-items:center;gap:6px;font-weight:600}
 .glegend i{display:inline-block;width:42px;height:14px;border:1px solid #9a9a9a}
+.glegend .brush{display:flex;align-items:center;gap:6px;font-weight:600;font-size:12px;padding:4px 8px;border-radius:8px;border:2px solid transparent;background:none}
+.glegend .brush:hover{background:var(--chip)}
+.glegend .brush.on{border-color:var(--ink);background:var(--chip)}
+.glegend .legend-only{color:var(--muted)}
+.glegend i.eraser{background:repeating-linear-gradient(135deg,#fff 0 4px,#d0d0d0 4px 8px)}
+.paint-help{margin:4px 2px 0;font-size:12px}
+.sgrid.painting td[data-emp]{cursor:crosshair}
+.sgrid{user-select:none;-webkit-user-select:none;touch-action:pan-y}
 .gcov{margin-top:10px}.gcov summary{cursor:pointer;font-size:13px;color:var(--muted)}
 .gcov .sgrid{margin-top:6px}
 #printArea{display:none}
@@ -453,7 +461,7 @@ let state = {config: defaultConfig(), days: {}};
 try { const s = JSON.parse(localStorage.getItem(LS)); if (s && s.config) state = s; } catch (e) {}
 if (ensureConfig(state.config)) try { localStorage.setItem(LS, JSON.stringify(state)); } catch (e) {}
 let curDate = todayStr();
-const ui = {dview: 'grid'};
+const ui = {dview: 'grid', brush: null}; // brush: a sales point id, 'erase', or null
 try { ui.dview = localStorage.getItem('staffsched.dview') || 'grid'; } catch (e) {}
 let view = 'day';
 
@@ -1168,7 +1176,7 @@ function gridHTML(day, need, cover, forPrint) {
   const people = emps.filter(e => working.has(e.id) || onSchedule.has(e.id));
   if (!people.length) return `<div class="tl-wrap"><div class="empty">Tick who's in today, then press Generate schedule.</div></div>`;
   const brk = new Map(); (day.breaks || []).forEach(b => { for (let k = b.slot; k < b.slot + b.len; k++) brk.set(b.emp + ':' + k, b); });
-  let h = `<div class="gwrap"><table class="sgrid${forPrint ? ' print' : ''}"><colgroup><col class="c-name">${'<col class="c-slot">'.repeat(SLOTS)}<col class="c-num"><col class="c-num"></colgroup>
+  let h = `<div class="gwrap"><table class="sgrid${forPrint ? ' print' : ''}${ui.brush && !forPrint ? ' painting' : ''}"><colgroup><col class="c-name">${'<col class="c-slot">'.repeat(SLOTS)}<col class="c-num"><col class="c-num"></colgroup>
     <thead><tr><th class="corner"></th>`;
   for (let k = 0; k < SLOTS; k++) h += `<th class="slot${slotTime(k).endsWith(':00') ? ' hr' : ''}"><span>${slotTime(k)} - ${slotTime(k + 1) === '00:00' ? '24:00' : slotTime(k + 1)}</span></th>`;
   h += `<th class="num">HOURS</th><th class="num rest">Rest hours</th></tr></thead><tbody>`;
@@ -1189,7 +1197,11 @@ function gridHTML(day, need, cover, forPrint) {
   h += `</tbody></table>`;
   // legend, like the bottom row of the paper schedule
   const shown = sps.filter(sp => need[sp.id].some(x => x > 0) || day.shifts.some(s => s.sp === sp.id));
-  h += `<div class="glegend">${shown.map(sp => `<span><i style="background:${sp.color}"></i>${esc(sp.name)}</span>`).join('')}<span><i style="background:${BREAK_COLOR}"></i>Break</span></div>`;
+  if (forPrint) h += `<div class="glegend">${shown.map(sp => `<span><i style="background:${sp.color}"></i>${esc(sp.name)}</span>`).join('')}<span><i style="background:${BREAK_COLOR}"></i>Break</span></div>`;
+  else h += `<div class="glegend paint">${sps.map(sp => `<button class="brush${ui.brush === sp.id ? ' on' : ''}" data-act="brush" data-v="${sp.id}" title="Paint ${esc(sp.name)}"><i style="background:${sp.color}"></i>${esc(sp.name)}</button>`).join('')}
+      <button class="brush${ui.brush === 'erase' ? ' on' : ''}" data-act="brush" data-v="erase" title="Erase"><i class="eraser"></i>Eraser</button>
+      <span class="legend-only"><i style="background:${BREAK_COLOR}"></i>Break</span></div>
+    <p class="help paint-help">${ui.brush ? `<b>${ui.brush === 'erase' ? 'Eraser' : esc(spById(ui.brush).name)}</b> selected: press and drag along a person's row. Right-click drag erases. Click the colour again or press Esc to stop.` : 'Pick a colour above, then drag along a person\'s row to add work. Right-click and drag to remove. Without a colour, click a cell to edit that shift.'}</p>`;
   if (!forPrint) {
     h += `<details class="gcov"${day.shifts.length ? '' : ' open'}><summary>Staff on / needed per half hour</summary><table class="sgrid cov"><colgroup><col class="c-name">${'<col class="c-slot">'.repeat(SLOTS)}<col class="c-num"><col class="c-num"></colgroup><tbody>`;
     shown.forEach(sp => {
@@ -1417,6 +1429,57 @@ function renderBadge() {
   b.className = 'badge ' + FB.status;
 }
 
+/* ============ Painting shifts on the grid ============ */
+// Set a person's half hours a..b to a sales point (or clear them), then rebuild their shifts.
+function setSlots(day, empId, a, b, spId) {
+  const old = day.shifts.filter(s => s.emp === empId), arr = new Array(SLOTS).fill(null);
+  old.forEach(s => { for (let k = s.start; k < s.end; k++) arr[k] = s.sp; });
+  for (let k = Math.max(0, a); k < Math.min(SLOTS, b); k++) arr[k] = spId;
+  const out = [], used = new Set();
+  for (let k = 0; k < SLOTS;) {
+    if (!arr[k]) { k++; continue; }
+    let e = k; while (e < SLOTS && arr[e] === arr[k]) e++;
+    const src = old.find(s => s.sp === arr[k] && s.start < e && s.end > k && !used.has(s.id)); // keep its rule tags
+    if (src) used.add(src.id);
+    out.push(src ? {...src, start: k, end: e} : {id: uid(), emp: empId, sp: arr[k], start: k, end: e});
+    k = e;
+  }
+  day.shifts = [...day.shifts.filter(s => s.emp !== empId), ...out];
+}
+const paint = {active: false, justDone: false};
+function paintCells(row, a, b, color) {
+  row.querySelectorAll('td[data-emp]').forEach(td => { const k = +td.dataset.k; td.style.background = k >= a && k <= b ? color : (paint.base[k] || ''); });
+}
+document.addEventListener('pointerdown', e => {
+  const td = e.target.closest && e.target.closest('.sgrid td[data-emp]'); if (!td) return;
+  const erase = e.button === 2 || ui.brush === 'erase';
+  if (!erase && !ui.brush) return; // no colour picked: normal click opens the editor
+  if (e.button !== 0 && e.button !== 2) return;
+  e.preventDefault();
+  const row = td.parentElement;
+  paint.active = true; paint.emp = td.dataset.emp; paint.from = paint.to = +td.dataset.k; paint.row = row;
+  paint.sp = erase ? null : ui.brush; paint.color = erase ? '#ffffff' : spById(ui.brush).color;
+  paint.base = [...row.querySelectorAll('td[data-emp]')].map(x => x.style.background);
+  paintCells(row, paint.from, paint.to, paint.color);
+});
+document.addEventListener('pointermove', e => {
+  if (!paint.active) return;
+  const el = document.elementFromPoint(e.clientX, e.clientY), td = el && el.closest && el.closest('.sgrid td[data-emp]');
+  if (!td || td.dataset.emp !== paint.emp) return;
+  paint.to = +td.dataset.k;
+  paintCells(paint.row, Math.min(paint.from, paint.to), Math.max(paint.from, paint.to), paint.color);
+});
+document.addEventListener('pointerup', () => {
+  if (!paint.active) return;
+  paint.active = false; paint.justDone = true; setTimeout(() => paint.justDone = false, 50);
+  const day = getDay(curDate), a = Math.min(paint.from, paint.to), b = Math.max(paint.from, paint.to) + 1;
+  setSlots(day, paint.emp, a, b, paint.sp);
+  if (paint.sp && !day.working.includes(paint.emp)) day.working.push(paint.emp);
+  placeBreaks(curDate, day); saveDay(curDate); render();
+});
+document.addEventListener('contextmenu', e => { if (e.target.closest && e.target.closest('.sgrid')) e.preventDefault(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && ui.brush) { ui.brush = null; render(); } });
+
 /* ============ Shift dialog ============ */
 let dlgShift = null;
 function openShift(shift, spId, preset) {
@@ -1496,7 +1559,9 @@ document.addEventListener('click', e => {
       break;
     case 'dview': ui.dview = b.dataset.v; try { localStorage.setItem('staffsched.dview', ui.dview); } catch (e) {} render(); return;
     case 'add-shift': openShift(null, b.dataset.sp); return;
+    case 'brush': ui.brush = ui.brush === b.dataset.v ? null : b.dataset.v; render(); return;
     case 'cell': {
+      if (ui.brush || paint.justDone) return; // painting handles it
       const s = day.shifts.find(x => x.emp === b.dataset.emp && +b.dataset.k >= x.start && +b.dataset.k < x.end);
       if (s) openShift(s); else openShift(null, null, {emp: b.dataset.emp, start: +b.dataset.k});
       return;
