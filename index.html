@@ -383,7 +383,7 @@ function ensureConfig(c) {
   if (c.rulesVersion < 5) { if (!c.fixedRules.some(r => r.type === 'cover' && r.sp === 'placeur') && c.salesPoints.some(sp => sp.id === 'placeur')) c.fixedRules.push({type: 'cover', sp: 'placeur'}); c.rulesVersion = 6; changed = true; }
   c.rules ||= {};
   if ('maxShiftH' in c.rules) { delete c.rules.maxShiftH; c.rules.minShiftH = 2; changed = true; }
-  const RULE_DEFAULTS = {minShiftH: 2, dayHours: 10, signHours: 5, minSplitH: 2, minRestH: 6, mealBreakMin: 30,
+  const RULE_DEFAULTS = {signOffBeforeDepMin: 60, maxBeforeOpenMin: 60, minShiftH: 2, dayHours: 10, signHours: 5, minSplitH: 2, minRestH: 6, mealBreakMin: 30,
     meals: [{label: 'Lunch', from: '11:30', to: '13:00'}, {label: 'Dinner', from: '16:30', to: '18:30'}]};
   for (const k in RULE_DEFAULTS) if (c.rules[k] === undefined) { c.rules[k] = clone(RULE_DEFAULTS[k]); changed = true; }
   (c.positions || []).forEach(p => { // day now starts 05:00
@@ -623,12 +623,14 @@ function paxSummary(day) {
 const isBackup = e => !!(e && (e.manager || e.supervisor));
 const rankLabel = e => e.manager && e.supervisor ? 'Manager/Supervisor' : e.manager ? 'Manager' : e.supervisor ? 'Supervisor' : '';
 
-// Signing off: leaves when the ship docks, so works before arrival. Signing on: boards at arrival, works after.
+// Signing off: done with work a set time (default 1h) before departure. Signing on: boards at arrival, works after.
 function signWindow(e, date, day) {
   if (!(day.signing || []).includes(e.id)) return [0, SLOTS];
-  const arr = portFor(date, day).arr; if (!arr) return [0, SLOTS];
-  return (day.signDir || {})[e.id] === 'on' ? [toSlot(arr), SLOTS] : [0, toSlot(arr)];
+  const pc = portFor(date, day);
+  if ((day.signDir || {})[e.id] === 'on') return pc.arr ? [toSlot(pc.arr), SLOTS] : [0, SLOTS];
+  return pc.dep ? [0, Math.max(0, toSlot(pc.dep) - Math.round((+R().signOffBeforeDepMin || 0) / 30))] : [0, SLOTS];
 }
+const signDeadline = (e, date, day) => { const [w0, w1] = signWindow(e, date, day); return (day.signDir || {})[e.id] === 'on' ? `from ${slotTime(w0)} (arrival)` : `by ${slotTime(w1)} (${(+R().signOffBeforeDepMin || 0) / 60}h before departure)`; };
 const signLabel = (e, day) => (day.signDir || {})[e.id] === 'on' ? 'signs on' : 'signs off';
 
 function checkRules(date, day) {
@@ -636,11 +638,12 @@ function checkRules(date, day) {
   cfg().employees.forEach(e => {
     const blocks = workBlocks(day, e.id); if (!blocks.length) return;
     if ((day.signing || []).includes(e.id)) {
-      const arr = portFor(date, day).arr, [w0, w1] = signWindow(e, date, day);
-      if (!arr) out.push(`${e.name} ${signLabel(e, day)} today, but there is no port arrival (set it under Opening hours today).`);
+      const pc = portFor(date, day), on = (day.signDir || {})[e.id] === 'on', [w0, w1] = signWindow(e, date, day);
+      const arr = on ? pc.arr : pc.dep;
+      if (!arr) out.push(`${e.name} ${signLabel(e, day)} today, but there is no port ${on ? 'arrival' : 'departure'} (set it under Opening hours today).`);
       if (blocks.length > 1) out.push(`${e.name} ${signLabel(e, day)} today: the hours must be in a row, not split.`);
       const bad = blocks.find(b => b.start < w0 || b.end > w1);
-      if (bad && arr) out.push(`${e.name} ${signLabel(e, day)} at ${arr} arrival, but works ${slotTime(bad.start)}–${slotTime(bad.end)}.`);
+      if (bad && arr) out.push(`${e.name} ${signLabel(e, day)} and must work ${signDeadline(e, date, day)}, but works ${slotTime(bad.start)}–${slotTime(bad.end)}.`);
     }
     const total = blocks.reduce((a, b) => a + b.end - b.start, 0), want = targetSlots(e, day);
     if (isBackup(e)) { if (total > want) out.push(`${e.name} (${rankLabel(e).toLowerCase()}) works ${total / 2}h today (maximum ${want / 2}h).`); }
@@ -721,10 +724,16 @@ function generate(date, day) {
     const E = earliestStart(e, date), T = targetSlots(e, day);
     const info = sps.map(sp => {
       const m = empMask(e, sp.id), n = need[sp.id], c = cover[sp.id], home = homeWeight && sp.id === homeSp, w = home ? homeWeight : 1, cw = capWin[sp.id];
-      // at their own place, headwaiters/team may stay up to 3h before or after it's busy, to make up their hours
-      let lo = 0, hi = SLOTS;
-      if (home) { const busy = n.map((x, i) => x > 0 ? i : -1).filter(i => i >= 0); if (busy.length) { lo = Math.max(0, busy[0] - ext); hi = Math.min(SLOTS, busy[busy.length - 1] + 1 + ext); } }
-      const ok = k => k >= E && m[k] && (home ? k >= lo && k < hi : n[k] > 0) && !(cw && k >= cw[0] && k < cw[1] && n[k] - c[k] <= 0);
+      // at their own place, headwaiters/team may make up hours by staying after closing (up to 3h),
+      // but never come in more than "maxBeforeOpenMin" before an opening
+      let homeOk = null;
+      if (home) {
+        homeOk = n.map(x => x > 0);
+        const hh = spHours(sp, date, day), before = Math.round((+R().maxBeforeOpenMin || 0) / 30);
+        hh.periods.forEach(p => { const o = toSlot(p.open), cl = endSlot(p.close);
+          for (let k = Math.max(0, o - before); k < Math.min(SLOTS, cl + ext + Math.ceil((+sp.closeMin || 0) / 30)); k++) homeOk[k] = true; });
+      }
+      const ok = k => k >= E && m[k] && (home ? homeOk[k] : n[k] > 0) && !(cw && k >= cw[0] && k < cw[1] && n[k] - c[k] <= 0);
       const pre = [0]; for (let k = 0; k < SLOTS; k++) pre.push(pre[k] + (ok(k) && n[k] - c[k] > 0 ? w : 0));
       // how overstaffed a slot would become: used to spread extra people instead of piling them up
       const opre = [0]; for (let k = 0; k < SLOTS; k++) opre.push(opre[k] + (ok(k) && n[k] - c[k] <= 0 ? c[k] - n[k] + 1 : 0));
@@ -802,7 +811,15 @@ function generate(date, day) {
       const cr = closerOf(r.sp);
       // the closer arrives within an hour of the opener: one person covers it, no separate opening shift
       if (!fixedStart && cr && closerEnd(cr, h) - cr.hours * 2 <= start + 2) { notes.push(`${sp.name} opens in the evening today, so the closing shift covers it alone.`); return; }
-      const base = e => restOk(e, start) && inWindow(e, start, start + Math.min(r.hours * 2, targetSlots(e, day))) && (r.who === 'headwaiter' ? e.headAt === r.sp : empMask(e, r.sp)[start] && !(homeOpen(e) && e.headAt !== r.sp));
+      // the opening block for this person: normally from 'start'; someone signing off ends at the ship's arrival
+      // (starting earlier if needed), someone signing on can't open before arriving
+      const blockFor = e => {
+        const len = Math.min(r.hours * 2, targetSlots(e, day)), [w0, w1] = signWindow(e, date, day);
+        let a = start, b = start + len;
+        if (b > w1) b = w1; // shorter, rather than starting earlier than the opening shift
+        return a <= start && b > start + 1 && a >= w0 && restOk(e, a) ? [a, b] : null;
+      };
+      const base = e => !!blockFor(e) && (r.who === 'headwaiter' ? e.headAt === r.sp : empMask(e, r.sp)[start] && !(homeOpen(e) && e.headAt !== r.sp));
       let cands = free().filter(base), e = pickHolder(r, cands);
       if (!e) {
         const pool2 = cands.filter(x => !notMine(x, r));
@@ -810,12 +827,13 @@ function generate(date, day) {
         e = pool2[0] || cands[0];
       }
       if (!e && r.who === 'headwaiter') { // no headwaiter in: anyone who may work there at that time
-        const any = free().filter(x => restOk(x, start) && inWindow(x, start, start + Math.min(r.hours * 2, targetSlots(x, day))) && empMask(x, r.sp)[start] && !notMine(x, r) && !(homeOpen(x) && x.headAt !== r.sp)).sort((a, b) => flex(a) - flex(b));
+        const any = free().filter(x => !!blockFor(x) && empMask(x, r.sp)[start] && !notMine(x, r) && !(homeOpen(x) && x.headAt !== r.sp)).sort((a, b) => flex(a) - flex(b));
         e = any[0]; if (e) notes.push(`No ${sp.name} headwaiter is in, so ${e.name} opens.`);
       }
       holderNote(r, e, 'opened');
       if (!e) { notes.push(`Nobody available to open ${sp.name} at ${slotTime(start)}.`); return; }
-      place(e, r.sp, start, start + Math.min(r.hours * 2, targetSlots(e, day)), 'opening', 'open');
+      const ob = blockFor(e) || [start, start + Math.min(r.hours * 2, targetSlots(e, day))];
+      place(e, r.sp, ob[0], ob[1], 'opening', 'open');
       const ho = holders.get(r); if (ho && ho.streak < 7 && ho.emp !== e.id) shifts[shifts.length - 1].sub = true;
     } else if (r.type === 'closer') {
       const end = closerEnd(r, h), start = end - r.hours * 2;
@@ -1048,7 +1066,7 @@ function renderDay() {
   const who = `<div class="card"><h3>Who's in <span class="muted">${day.working.length}</span>
     <span class="acts"><button data-act="all">All</button><button data-act="none">None</button><button data-act="copyprev" title="Copy from the same weekday last week">Last week</button></span></h3>
     <div class="chips">${emps.map(e => `<button class="chip ${working.has(e.id) ? 'on' : ''}" data-act="toggle" data-id="${e.id}">${esc(e.name)}${e.headAt && spById(e.headAt) ? ` <small>★ ${esc(spById(e.headAt).name)}</small>` : ''}${isBackup(e) ? ` <small>${rankLabel(e)}</small>` : ''}</button>`).join('') || '<span class="muted">Add employees in Setup.</span>'}</div>
-    ${day.working.length ? `<div class="signrow"><span class="muted">Signing off / on today (${R().signHours}h, in a row${portFor(curDate, day).arr ? `; ship arrives ${portFor(curDate, day).arr}` : '; no port arrival today'}). Tap to switch:</span>
+    ${day.working.length ? `<div class="signrow"><span class="muted">Signing off / on today (${R().signHours}h, in a row; ${(pc => [pc.arr ? `ship arrives ${pc.arr}, sign-on from then` : 'no arrival', pc.dep ? `departs ${pc.dep}, sign-off done by ${slotTime(toSlot(pc.dep) - Math.round((+R().signOffBeforeDepMin || 0) / 30))}` : 'no departure'].join('; '))(portFor(curDate, day))}). Tap to switch:</span>
       ${emps.filter(e => working.has(e.id)).map(e => { const sg = day.signing.includes(e.id), on = sg && day.signDir[e.id] === 'on';
         return `<button class="chip small ${sg ? 'on' : ''}" data-act="sign" data-id="${e.id}" title="Tap: signing off → signing on → neither">${esc(e.name)}${sg ? (on ? ' ⬆ on' : ' ⬇ off') : ''}</button>`; }).join('')}</div>` : ''}</div>`;
 
@@ -1344,6 +1362,8 @@ function renderSetup() {
         <label>Break between shifts at least (hours) <input type="number" min="0.5" step="0.5" value="${rules.minSplitH}" data-ch="rule" data-f="minSplitH"></label>
         <label>Minimum rest between days (hours) <input type="number" min="0" step="0.5" value="${rules.minRestH}" data-ch="rule" data-f="minRestH"></label>
         <label>Shortest part of a split (hours) <input type="number" min="0.5" step="0.5" value="${rules.minShiftH}" data-ch="rule" data-f="minShiftH"></label>
+        <label>Signing off: done before departure (min) <input type="number" min="0" step="30" value="${rules.signOffBeforeDepMin}" data-ch="rule" data-f="signOffBeforeDepMin"></label>
+        <label>Never more than … before opening (min) <input type="number" min="0" step="30" value="${rules.maxBeforeOpenMin}" data-ch="rule" data-f="maxBeforeOpenMin"></label>
         <label>Meal break (minutes) <input type="number" min="30" step="30" value="${rules.mealBreakMin}" data-ch="rule" data-f="mealBreakMin"></label>
       </div>
       <table style="max-width:420px;margin-bottom:8px"><tr><th>Staff meal</th><th>Time</th></tr>
@@ -1554,7 +1574,7 @@ document.addEventListener('change', e => {
     const t = spById(id).bookingTypes[+el.dataset.i];
     t[f] = f === 'perStaff' ? Math.max(0, parseInt(el.value, 10) || 0) : (f === 'label' ? (el.value.trim() || t.label) : el.value);
   }
-  else if (ch === 'rule') { C.rules[f] = Math.max(f === 'minRestH' ? 0 : 0.5, parseFloat(el.value) || 0); }
+  else if (ch === 'rule') { C.rules[f] = Math.max(['minRestH', 'signOffBeforeDepMin', 'maxBeforeOpenMin'].includes(f) ? 0 : 0.5, parseFloat(el.value) || 0); }
   else if (ch === 'meal') { C.rules.meals[+el.dataset.i][f] = el.value; }
   else if (ch === 'sp') { const sp = spById(id); sp[f] = ['name', 'type', 'color'].includes(f) ? el.value : Math.max(0, parseFloat(el.value) || 0); }
   else if (ch === 'emp') { const em = empById(id); em[f] = f === 'headAt' ? (el.value || null) : el.value; if (f === 'headAt' && em.headAt && !empMask({...em, headAt: null}, em.headAt).some(Boolean)) em.allowed.push(...C.positions.filter(p => p.sp === em.headAt).map(p => p.key)); }
