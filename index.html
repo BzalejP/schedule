@@ -330,7 +330,7 @@ const DEFAULT_FIXED_RULES = [
   {type: 'opener', sp: 'undirhusid', who: 'any', hours: 10, beforeMin: 60, keepWeek: true},
   {type: 'closer', sp: 'laterna', hours: 10, end: '03:00', keepWeek: true, alone: true},
   {type: 'closer', sp: 'undirhusid', hours: 10, end: '03:00', keepWeek: true, alone: true},
-  {type: 'team', sp: 'munkastova', lunch: ['12:00', '15:00'], dinner: ['17:00', '00:00']},
+  {type: 'team', sp: 'munkastova', lunch: ['12:00', '15:00'], dinner: ['17:00', '00:00'], fixedDays: [{season: 'shoulder', day: 'wed', start: '12:00'}, {season: 'shoulder', day: 'thu', end: '00:00'}]},
   {type: 'cover', sp: 'placeur'}
 ];
 // M/F Norröna port calls, ship time (from the shoulder-season sheet). null = no arrival/departure that day.
@@ -350,7 +350,8 @@ function ruleText(r) {
   if (r.type === 'opener') return `${n} opening shift (${r.who === 'headwaiter' ? 'the headwaiter' : 'someone with an ' + n + ' position'}): ${r.hours} hours in a row, starting ${r.beforeMin / 60} hour${r.beforeMin === 60 ? '' : 's'} before opening.${ov}${wk}`;
   if (r.type === 'closer') return `${n} closing shift: one person, ${r.hours} hours in a row, finishing at ${r.end}. Nobody else is added during it unless extra staff is needed.${wk}`;
   if (r.type === 'cover') { const src = spById((spById(r.sp) || {}).hoursFrom); return `${n} is always staffed during every service window${src ? ' of ' + esc(src.name) : ''} (breakfast and dinner), by someone with the ${n} position.`; }
-  if (r.type === 'team') return `${n}: one headwaiter always works there${r.dinner ? `; on days with 2 service windows ${r.lunch[0]}–${r.lunch[1]} and ${r.dinner[0]}–${r.dinner[1] === '00:00' ? '24:00' : r.dinner[1]}` : ''}. A second and third person are added only for the hours bookings need them. The same people are preferred day to day.`;
+  if (r.type === 'team') return `${n}: one headwaiter always works there${r.dinner ? `; on days with 2 service windows ${r.lunch[0]}–${r.lunch[1]} and ${r.dinner[0]}–${r.dinner[1] === '00:00' ? '24:00' : r.dinner[1]}` : ''}. A second and third person are added only for the hours bookings need them. The same people are preferred day to day.` +
+    (r.fixedDays || []).map((fd, i) => `<br><span class="per" style="margin:4px 0 0 0;display:inline-flex">${esc((cfg().seasons && cfg().seasons[fd.season] ? seasonName(fd.season) : fd.season))}, ${WDL[WD.indexOf(fd.day)]}: the headwaiter works ${R().dayHours}h in a row at ${n}, ${fd.end ? `ending at <select data-ch="tfd" data-i="${i}" data-f="end">${endOpts(fd.end)}</select>` : `starting at <select data-ch="tfd" data-i="${i}" data-f="start">${timeOpts(fd.start)}</select>`}${fd.day === 'wed' ? ' (closed day: cleaning, no separate cleaner)' : ''}</span>`).join('');
   return '';
 }
 // Smyril Line sailing schedule 2027 (issued 09.11.26), converted to SHIP time (Faroese time) and to
@@ -444,6 +445,8 @@ function ensureConfig(c) {
   }
   if (c.rulesVersion < 5) { if (!c.fixedRules.some(r => r.type === 'cover' && r.sp === 'placeur') && c.salesPoints.some(sp => sp.id === 'placeur')) c.fixedRules.push({type: 'cover', sp: 'placeur'}); c.rulesVersion = 6; changed = true; }
   if (c.rulesVersion === 6) { applyV7(c); c.rulesVersion = 7; changed = true; }
+  { const t = (c.fixedRules || []).find(r => r.type === 'team' && r.sp === 'munkastova');
+    if (t && !t.fixedDays) { t.fixedDays = [{season: 'shoulder', day: 'wed', start: '12:00'}, {season: 'shoulder', day: 'thu', end: '00:00'}]; changed = true; } }
   if (!c.seasons) {
     loadOpening2026(c); c.seasonRanges = clone(DEFAULT_SEASON_RANGES);
     // cleaning on closed days: only on Wednesdays (Undirhusid and Munkastova), otherwise every closed day in winter
@@ -897,7 +900,8 @@ function generate(date, day) {
   [...FR].sort((a, b) => order(a) - order(b)).forEach(r => {
     const sp = spById(r.sp); if (!sp) return;
     const cleaningDay = !isOpenDay(r.sp) && need[r.sp].some(x => x > 0);
-    if (!isOpenDay(r.sp) && !(r.type === 'team' && cleaningDay)) return;
+    const fixedDay = r.type === 'team' && (r.fixedDays || []).find(x => x.season === seasonFor(date) && x.day === WD[wdIndex(date)]);
+    if (!isOpenDay(r.sp) && !(r.type === 'team' && (cleaningDay || fixedDay))) return;
     const h = spHours(sp, date, day);
     if (r.type === 'opener') {
       const fixedStart = r.startAt && r.startAt[WD[wdIndex(date)]];
@@ -968,6 +972,18 @@ function generate(date, day) {
       const last = prevTeam(date, r.sp);
       const prefer = (a, b) => ((last.indexOf(a.id) + 1 || 99) - (last.indexOf(b.id) + 1 || 99)) || (signing.has(a.id) - signing.has(b.id)) || flex(a) - flex(b);
       const others = () => free().filter(e => can(e) && !notMine(e, r) && !(homeOpen(e) && e.headAt !== r.sp)).sort(prefer);
+      if (fixedDay) { // e.g. shoulder Wed/Thu: the headwaiter works 10h in a row at Munkastova
+        const heads = free().filter(e => e.headAt === r.sp && can(e)).sort(prefer);
+        let lead = heads[0];
+        if (!lead) { lead = others()[0]; if (lead) notes.push(`No ${sp.name} headwaiter is in, so ${lead.name} takes the ${sp.name} day.`); }
+        if (lead) {
+          const T = targetSlots(lead, day);
+          let a = fixedDay.end ? endSlot(fixedDay.end) - T : toSlot(fixedDay.start); a = Math.max(0, a);
+          if (!restOk(lead, a)) notes.push(`${lead.name} starts ${sp.name} at ${slotTime(a)} without ${R().minRestH}h rest.`);
+          place(lead, r.sp, a, Math.min(SLOTS, a + T), 'team', 'team');
+        } else notes.push(`Nobody available for the ${sp.name} headwaiter day.`);
+        if (!isOpenDay(r.sp)) { capWin[r.sp] = [0, SLOTS]; return; } // closed: the headwaiter is the cleaner
+      }
       if (cleaningDay) { // closed: just one person from the usual team, for cleaning
         const cc = sp.closedClean, w0 = toSlot(cc.from), w1 = endSlot(cc.to);
         const fits = e => { const m = empMask(e, r.sp); for (let k = w0; k < w1; k++) if (!m[k]) return false; return restOk(e, w0); };
@@ -976,11 +992,12 @@ function generate(date, day) {
         const p = bestPlan(e, 50, r.sp, 0); if (p) assignPlan(e, p);
         return;
       }
-      // 1) the headwaiter (yesterday's, if in)
-      const heads = free().filter(e => e.headAt === r.sp && can(e)).sort(prefer);
-      let lead = heads[0];
-      if (!lead) { lead = others()[0]; if (lead) notes.push(`No ${sp.name} headwaiter is in, so ${lead.name} runs it.`); }
-      if (lead) {
+      // 1) the headwaiter (yesterday's, if in) — already placed on a fixed day
+      const heads = fixedDay ? [] : free().filter(e => e.headAt === r.sp && can(e)).sort(prefer);
+      let lead = fixedDay ? null : heads[0];
+      if (!lead && !fixedDay) { lead = others()[0]; if (lead) notes.push(`No ${sp.name} headwaiter is in, so ${lead.name} runs it.`); }
+      if (fixedDay) { /* lead placed above */ }
+      else if (lead) {
         const T = targetSlots(lead, day);
         if (h.periods.length >= 2 && r.dinner && !oneBlock(lead)) {
           const l0 = toSlot(r.lunch[0]), l1 = endSlot(r.lunch[1]), d0 = toSlot(r.dinner[0]);
@@ -1747,6 +1764,7 @@ document.addEventListener('change', e => {
   if (ch === 'date') { if (el.value) setDate(el.value); return; }
   if (ch === 'book') return; // handled on 'input' below, without redrawing the page
   if (ch === 'sp-flag') { spById(id)[f] = el.checked ? 1 : 0; saveConfig(); scheduleRender(); return; }
+  if (ch === 'tfd') { const t = C.fixedRules.find(r => r.type === 'team'); t.fixedDays[+el.dataset.i][f] = el.value; saveConfig(); scheduleRender(); return; }
   if (ch === 'srange') { const r = C.seasonRanges[+el.dataset.i]; r[f] = el.value; C.seasonRanges.sort((a, b) => (a.from || '').localeCompare(b.from || '')); saveConfig(); scheduleRender(); return; }
   if (ch === 'paxr') { const r = spById(id).paxRules[+el.dataset.i]; r[f] = Math.max(0, parseInt(el.value, 10) || 0); saveConfig(); scheduleRender(); return; }
   if (ch === 'pax') return; // saved on input
