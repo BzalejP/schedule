@@ -332,7 +332,7 @@ const DEFAULT_PAX = {
   laterna:    [{from: 0, morning: 1, day: 1, night: 1}, {from: 500, morning: 1, day: 2, night: 2}, {from: 1000, morning: 2, day: 2, night: 3}],
   undirhusid: [{from: 0, morning: 1, day: 1, night: 1}, {from: 500, morning: 1, day: 1, night: 2}, {from: 1000, morning: 1, day: 2, night: 2}]
 };
-const DEFAULT_DOCK_RULE = {sp: 'laterna', beforeArrMin: 60, afterDepMin: 120, extra: 1};
+const DEFAULT_DOCK_RULE = {sp: 'laterna', beforeArrMin: 60, afterDepMin: 120, people: 2, minPax: 500};
 function ruleText(r) {
   const n = esc((spById(r.sp) || {}).name || r.sp), wk = r.keepWeek ? ' Same person for at least a week in a row.' : '';
   const ov = r.startAt ? Object.entries(r.startAt).map(([d, t]) => ` On ${WDL[WD.indexOf(d)]}s it starts at ${t} (extra cleaning).`).join('') : '';
@@ -373,6 +373,7 @@ function ensureConfig(c) {
     const m = c.salesPoints.find(sp => sp.id === 'munkastova'); if (m) { m.baseStaff = 1; m.prepMin = 0; m.maxStaff = 3; }
     c.rulesVersion = 4;
   }
+  if (c.dockRule && c.dockRule.people === undefined) { c.dockRule.people = 1 + (+c.dockRule.extra || 1); c.dockRule.minPax = 500; delete c.dockRule.extra; changed = true; }
   if ((c.paxVersion || 0) < 1) { c.salesPoints.forEach(sp => { if (DEFAULT_PAX[sp.id] && !sp.paxRules) sp.paxRules = clone(DEFAULT_PAX[sp.id]); }); c.paxVersion = 1; changed = true; }
   if (c.rulesVersion < 6) {
     c.rules ||= {}; delete c.rules.splitOverH; c.rules.minSplitH = 2;
@@ -518,10 +519,10 @@ function computeNeed(date, day, planning = true) {
       PAX_SHIFTS.forEach(k => { const [a, b] = shiftWin(sp.id, k), mn = +row[k] || 0;
         for (let s = a; s < b; s++) if (arr[s] > 0) arr[s] = Math.max(1, mn); }); // replaces 'staff whenever open'
     }
-    // Port calls: extra staff before arrival and after departure
     const dr = cfg().dockRule;
-    if (dr && dr.sp === sp.id && +dr.extra > 0) {
-      const pc = portFor(date, day), add = (a, b) => { for (let s = Math.max(0, a); s < Math.min(SLOTS, b); s++) arr[s] += +dr.extra; };
+    // Port calls: at least "people" staff around arrival/departure, only when passengers are above "minPax"
+    if (dr && dr.sp === sp.id && +dr.people > 0 && (+day.pax || 0) > (+dr.minPax || 0)) {
+      const pc = portFor(date, day), add = (a, b) => { for (let s = Math.max(0, a); s < Math.min(SLOTS, b); s++) arr[s] = Math.max(arr[s], +dr.people); };
       if (pc.arr) add(toSlot(pc.arr) - Math.round(dr.beforeArrMin / 30), toSlot(pc.arr));
       if (pc.dep) add(toSlot(pc.dep), toSlot(pc.dep) + Math.round(dr.afterDepMin / 30));
     }
@@ -1311,7 +1312,8 @@ function renderSetup() {
       <table style="max-width:460px"><tr><th>Day</th><th>Arrival</th><th>Departure</th></tr>
       ${WD.map((d, i) => { const pc = (cfg().port || {})[d] || {}; return `<tr><td>${WDL[i].slice(0, 3)}</td><td><select data-ch="portw" data-d="${d}" data-f="arr">${timeOptsNone(pc.arr)}</select></td><td><select data-ch="portw" data-d="${d}" data-f="dep">${timeOptsNone(pc.dep)}</select></td></tr>`; }).join('')}</table>
       ${cfg().dockRule ? `<div class="fields" style="max-width:640px;margin-top:10px">
-        <label>${esc((spById(cfg().dockRule.sp) || {}).name || '')}: extra staff on port days <input type="number" min="0" value="${cfg().dockRule.extra}" data-ch="dock" data-f="extra"></label>
+        <label>${esc((spById(cfg().dockRule.sp) || {}).name || '')}: staff at arrival/departure <input type="number" min="0" value="${cfg().dockRule.people}" data-ch="dock" data-f="people"></label>
+        <label>…only above (passengers) <input type="number" min="0" step="50" value="${cfg().dockRule.minPax}" data-ch="dock" data-f="minPax"></label>
         <label>Minutes before arrival <input type="number" min="0" step="30" value="${cfg().dockRule.beforeArrMin}" data-ch="dock" data-f="beforeArrMin"></label>
         <label>Minutes after departure <input type="number" min="0" step="30" value="${cfg().dockRule.afterDepMin}" data-ch="dock" data-f="afterDepMin"></label></div>` : ''}
       <p class="help" style="margin:6px 0 0">A single day can be changed on the day page, under Opening hours today.</p>
