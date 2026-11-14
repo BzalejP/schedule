@@ -192,6 +192,7 @@ dialog .row label{flex:1}
 .pobs{flex:1;display:flex;flex-direction:column;border:1px solid #777;font-size:11px;min-height:120px}
 .pobs-h{background:#bdd7ee;text-align:center;font-weight:700;border-bottom:1px solid #777}
 .pobs-b{flex:1;padding:3px 6px}
+.warnc{color:#c55a11;font-weight:600}
 .pph{border-collapse:collapse;width:9%;font-size:10.5px}
 .pph th,.pph td{border:1px solid #777;text-align:center;padding:0 3px;height:13px;line-height:1.15;font-style:italic;font-weight:700}
 .pph th{font-size:10.5px}.pph td{font-style:normal}
@@ -580,7 +581,13 @@ try { ui.dview = localStorage.getItem('staffsched.dview') || 'grid'; } catch (e)
 let view = 'day';
 
 const cfg = () => state.config;
-const spById = id => cfg().salesPoints.find(s => s.id === id);
+// Housekeeping (cabin cleaning by the 50/50s) isn't a sales point: it has no opening hours or staffing need,
+// it's just a fixed block on the schedule (Setup → Cabins).
+const CABINS = () => ({color: '#FF0000', days: {}, ...(cfg().cabins || {})});
+const HK_SP = () => ({id: 'hk', name: 'Housekeeping', color: CABINS().color, hours: {}, bookingTypes: [], virtual: true});
+const spById = id => id === 'hk' ? HK_SP() : cfg().salesPoints.find(s => s.id === id);
+// Today's cabin-cleaning window for the 50/50s, or null.
+const cabinWindow = date => { const d = (CABINS().days || {})[WD[wdIndex(date)]]; return d && d.from && d.to && endSlot(d.to) > toSlot(d.from) ? [toSlot(d.from), endSlot(d.to)] : null; };
 const empById = id => cfg().employees.find(e => e.id === id);
 function getDay(date) {
   if (!state.days[date]) state.days[date] = {working: [], bookings: {}, hours: {}, shifts: []};
@@ -613,6 +620,7 @@ function closedAllSeason(sp, date) {
   return WD.every(d => !normHours(sh[d]).periods.length);
 }
 function spHours(sp, date, day) {
+  if (sp && sp.virtual) return CLOSED();
   const src = sp.hoursFrom && sp.hoursFrom !== sp.id && spById(sp.hoursFrom);
   if (src) return spHours(src, date, day);
   if (day.hours && day.hours[sp.id]) return normHours(day.hours[sp.id]);
@@ -621,6 +629,7 @@ function spHours(sp, date, day) {
 }
 // Which half-hours an employee may work at a sales point (from their ticked positions).
 function empMask(e, spId) {
+  if (spId === 'hk') return new Array(SLOTS).fill(!!e.fifty);
   const m = new Array(SLOTS).fill(false);
   (cfg().positions || []).filter(p => p.sp === spId && e.allowed.includes(p.key))
     .forEach(p => { for (let s = toSlot(p.from); s < endSlot(p.to); s++) m[s] = true; });
@@ -1033,17 +1042,18 @@ function generate(date, day) {
     return best || fallback;
   }
   // After a fixed block, fill the rest of someone's day with one more block elsewhere (gap >= the split minimum).
-  function topUp(e, fixed) {
+  function topUp(e, fixed, adjacent = false) {
     const left = targetSlots(e, day) - fixed.reduce((t, [a, b]) => t + b - a, 0);
     if (left < minPart || fixed.length !== 1) return;
     const [fa, fb] = fixed[0], E = earliestStart(e, date); let best = null;
     for (const sp of sps) {
       const m = empMask(e, sp.id), n = need[sp.id], c = cover[sp.id], cw = capWin[sp.id], lc = lunchCap[sp.id];
-      const ok = k => k >= E && m[k] && n[k] > 0 && !(cw && k >= cw[0] && k < cw[1] && n[k] - c[k] <= 0) && !(lc && k >= lc[0] && k < lc[1] && n[k] - c[k] <= 0);
+      const hc = hardCap[sp.id];
+      const ok = k => k >= E && m[k] && n[k] > 0 && hc[k] !== 'prep' && !(hc[k] && n[k] - c[k] <= 0) && !(cw && k >= cw[0] && k < cw[1] && n[k] - c[k] <= 0) && !(lc && k >= lc[0] && k < lc[1] && n[k] - c[k] <= 0);
       for (let L = left; L >= minPart; L--) {
         let found = false;
         for (let a = 0; a + L <= SLOTS; a++) {
-          const b = a + L; if (!(b + minGap <= fa || a >= fb + minGap)) continue;
+          const b = a + L; if (!(b + minGap <= fa || a >= fb + minGap || (adjacent && (b === fa || a === fb)))) continue;
           let good = true, g = 0, o = 0;
           for (let k = a; k < b; k++) { if (!ok(k)) { good = false; break; } if (n[k] - c[k] > 0) g += slotW(sp, k, c[k]); else o += c[k] - n[k] + 1; }
           if (!good) continue; found = true;
@@ -1059,6 +1069,13 @@ function generate(date, day) {
     plan.parts.forEach(p => place(e, p.sp, p.a, p.a + p.L));
   };
 
+  // 0a) 50/50s: their cabin cleaning (housekeeping) first, the restaurant half comes after the headwaiters (step 1b)
+  const cw50 = cabinWindow(date), fifties = [];
+  if (cw50) pool.filter(e => e.fifty && !(day.signing || []).includes(e.id)).forEach(e => {
+    const half = Math.round(targetSlots(e, day) / 2), a = cw50[0], b = Math.min(cw50[1], a + half);
+    if (a < earliestStart(e, date)) notes.push(`${e.name} (50/50) starts cabins at ${slotTime(a)} without ${R().minRestH}h rest.`);
+    shifts.push({id: uid(), emp: e.id, sp: 'hk', start: a, end: b, fixed: 'hk'}); used.add(e.id); fifties.push([e, a, b]);
+  });
   // 0) Fixed rules, always applied first
   const nm = id => (empById(id) || {}).name || '?';
   const signing = new Set(day.signing || []);
@@ -1322,6 +1339,8 @@ function generate(date, day) {
 
   // 1) Other headwaiters: their own place first (topped up elsewhere if it isn't open long enough)
   free().filter(e => homeOpen(e)).forEach(e => { const p = bestPlan(e, 3); if (p) assignPlan(e, p); });
+  // 1b) 50/50s: the restaurant half, right before or after cabins, or with a proper break in between
+  fifties.forEach(([e, a, b]) => topUp(e, [[a, b]], true));
 
   // 2) Everyone else, biggest gaps first
   while (true) {
@@ -1656,7 +1675,7 @@ function renderDay() {
 
   const who = `<div class="card"><h3>Who's in <span class="muted">${day.working.length}</span>
     <span class="acts"><button data-act="all">All</button><button data-act="none">None</button><button data-act="copyprev" title="Copy from the same weekday last week">Last week</button></span></h3>
-    <div class="chips">${emps.map(e => `<button class="chip ${working.has(e.id) ? 'on' : ''}" data-act="toggle" data-id="${e.id}">${esc(e.name)}${e.headAt && spById(e.headAt) ? ` <small>★ ${esc(spById(e.headAt).name)}</small>` : ''}${isBackup(e) ? ` <small>${rankLabel(e)}</small>` : ''}${e.team ? ` <small>${esc((spById(e.team) || {}).name || e.team)} team</small>` : ''}${e.night ? ` <small>${esc((spById(e.night) || {}).name || e.night)} nightshift</small>` : ''}</button>`).join('') || '<span class="muted">Add employees in Setup.</span>'}</div>
+    <div class="chips">${emps.map(e => `<button class="chip ${working.has(e.id) ? 'on' : ''}" data-act="toggle" data-id="${e.id}">${esc(e.name)}${e.headAt && spById(e.headAt) ? ` <small>★ ${esc(spById(e.headAt).name)}</small>` : ''}${isBackup(e) ? ` <small>${rankLabel(e)}</small>` : ''}${e.team ? ` <small>${esc((spById(e.team) || {}).name || e.team)} team</small>` : ''}${e.night ? ` <small>${esc((spById(e.night) || {}).name || e.night)} nightshift</small>` : ''}${e.fifty ? ' <small>50/50</small>' : ''}</button>`).join('') || '<span class="muted">Add employees in Setup.</span>'}</div>
     ${day.working.length ? `<div class="signrow"><span class="muted">Signing off / on today (${R().signHours}h, in a row; ${(pc => [pc.arr ? `ship arrives ${pc.arr}, sign-on from then` : 'no arrival', pc.dep ? `departs ${pc.dep}, sign-off done by ${slotTime(toSlot(pc.dep) - Math.round((+R().signOffBeforeDepMin || 0) / 30))}` : 'no departure'].join('; '))(portFor(curDate, day))}). Tap to switch:</span>
       ${emps.filter(e => working.has(e.id)).map(e => { const sg = day.signing.includes(e.id), on = sg && day.signDir[e.id] === 'on';
         return `<button class="chip small ${sg ? 'on' : ''}" data-act="sign" data-id="${e.id}" title="Tap: signing off → signing on → neither">${esc(e.name)}${sg ? (on ? ' ⬆ on' : ' ⬇ off') : ''}</button>`; }).join('')}</div>` : ''}</div>`;
@@ -1784,8 +1803,9 @@ function gridHTML(day, need, cover, forPrint) {
   h += `</tbody></table>`;
   // legend, like the bottom row of the paper schedule
   const shown = sps.filter(sp => need[sp.id].some(x => x > 0) || day.shifts.some(s => s.sp === sp.id));
-  if (forPrint) h += `<div class="glegend">${shown.map(sp => `<span><i style="background:${sp.color}"></i>${esc(sp.name)}</span>`).join('')}<span><i style="background:${BREAK_COLOR}"></i>Break</span></div>`;
-  else h += `<div class="glegend paint">${sps.map(sp => `<button class="brush${ui.brush === sp.id ? ' on' : ''}" data-act="brush" data-v="${sp.id}" title="Paint ${esc(sp.name)}"><i style="background:${sp.color}"></i>${esc(sp.name)}</button>`).join('')}
+  const hkOn = day.shifts.some(s => s.sp === 'hk'), hkAny = hkOn || cfg().employees.some(e => e.fifty);
+  if (forPrint) h += `<div class="glegend">${[...shown, ...(hkOn ? [HK_SP()] : [])].map(sp => `<span><i style="background:${sp.color}"></i>${esc(sp.name)}</span>`).join('')}<span><i style="background:${BREAK_COLOR}"></i>Break</span></div>`;
+  else h += `<div class="glegend paint">${[...sps, ...(hkAny ? [HK_SP()] : [])].map(sp => `<button class="brush${ui.brush === sp.id ? ' on' : ''}" data-act="brush" data-v="${sp.id}" title="Paint ${esc(sp.name)}"><i style="background:${sp.color}"></i>${esc(sp.name)}</button>`).join('')}
       <button class="brush${ui.brush === 'erase' ? ' on' : ''}" data-act="brush" data-v="erase" title="Erase"><i class="eraser"></i>Eraser</button>
       <span class="legend-only"><i style="background:${BREAK_COLOR}"></i>Break</span></div>
     <p class="help paint-help">${ui.brush ? `<b>${ui.brush === 'erase' ? 'Eraser' : esc(spById(ui.brush).name)}</b> selected: press and drag along a person's row. Right-click drag erases. Click the colour again or press Esc to stop.` : 'Pick a colour above, then drag along a person\'s row to add work. Right-click and drag to remove. Without a colour, click a cell to edit that shift.'}</p>`;
@@ -1965,7 +1985,8 @@ function renderSetup() {
     <td><input type="text" value="${esc(e.name)}" data-ch="emp" data-id="${e.id}" data-f="name" style="width:120px"></td>
     <td><select data-ch="emp" data-id="${e.id}" data-f="headAt"><option value="">—</option>${sps.map(s => `<option value="${s.id}" ${e.headAt === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
       <option value="team:munkastova" ${e.team === 'munkastova' ? 'selected' : ''}>Munkastova team</option>
-      ${['laterna', 'undirhusid', 'noatun'].filter(spById).map(id => `<option value="night:${id}" ${e.night === id ? 'selected' : ''}>${esc(spById(id).name)} nightshift</option>`).join('')}</select></td>
+      ${['laterna', 'undirhusid', 'noatun'].filter(spById).map(id => `<option value="night:${id}" ${e.night === id ? 'selected' : ''}>${esc(spById(id).name)} nightshift</option>`).join('')}
+      <option value="fifty" ${e.fifty ? 'selected' : ''}>50/50 (cabins + restaurant)</option></select></td>
     <td>${canWork(e)}</td>
     <td><button class="x" data-act="emp-del" data-id="${e.id}" title="Delete employee">✕</button></td></tr>`).join('');
 
@@ -1973,6 +1994,7 @@ function renderSetup() {
     <div class="card"><h3>Employees <span class="muted">${emps.length}</span></h3>
       <p class="help">Backup — Manager / Supervisor: only used to fill gaps nobody else can cover, at any sales point, up to ${R().dayHours}h a day, in pieces of any length (even 30 min) (supervisors first). If nothing is short, they aren't scheduled.</p>
       <p class="help">Laterna / Undirhusid / Noatun nightshift: take priority for the night shift at their place — the closing shift at the bars, and the closing shift (10h ending when Noatun's last service is cleared) at Noatun.</p>
+      <p class="help">50/50: works ${R().dayHours / 2}h cleaning cabins (housekeeping, at the times under Cabins) and ${R().dayHours / 2}h in the restaurants — right before or after, or with at least ${R().minSplitH}h in between. On days without cabin times they work a normal restaurant day.</p>
       <p class="help">Munkastova team: picked first when Munkastova needs a second or third person — lunch only 12:00–15:00, dinner only from 30 min before opening to 2h after closing, both services the headwaiter's hours.</p>
       <p class="help">★ Headwaiters are placed at their own sales point first. They're only moved elsewhere when their place is closed or already fully staffed.</p>
       <div style="overflow-x:auto"><table><tr><th>Name</th><th>Headwaiter at / team / nightshift</th><th>Can work at</th><th></th></tr>${empRows}</table></div>
@@ -2010,6 +2032,14 @@ function renderSetup() {
         ${(sk => sk ? `<li>Skansagardur: ${(sk.morningPrep || {}).staff || sk.baseStaff} at breakfast (meet at opening, stay ${((sk.morningPrep || {}).after || 0) / 60}h after closing), ${sk.baseStaff} at dinner (meet ${sk.prepMin} min before opening, stay ${sk.closeMin / 60}h after closing). Change on the Skansagardur card.</li>` : '')(spById('skansagardur'))}
         <li>Every crew member working through a crew meal time (${(R().meals || []).map(m => m.from + '–' + m.to).join(' and ')}) gets a ${R().mealBreakMin}-minute break inside it, whatever their shift length.</li></ul>
       <p class="help" style="margin:8px 0 0">"Same person" rules look back at the previous days' schedules, so generate days in date order.</p>
+    </div>
+    <div class="card"><h3>Cabins <span class="muted">when the 50/50s clean cabins (housekeeping)</span></h3>
+      <table style="max-width:520px"><tr><th>Day</th><th>Cabin cleaning</th><th>Hours</th></tr>${WD.map((d, i) => { const c = (CABINS().days || {})[d] || {};
+        const hrs = c.from && c.to ? (endSlot(c.to) - toSlot(c.from)) / 2 : 0;
+        return `<tr><td>${WDL[i]}</td><td><span class="per"><select data-ch="cabin" data-d="${d}" data-f="from">${timeOptsNone(c.from)}</select>–<select data-ch="cabin" data-d="${d}" data-f="to">${timeOptsNone(c.to)}</select></span></td>
+          <td class="${hrs && hrs !== R().dayHours / 2 ? 'warnc' : 'muted'}">${hrs ? hrs + 'h' : 'no cabins'}</td></tr>`; }).join('')}</table>
+      <label style="display:inline-flex;gap:8px;align-items:center;margin-top:8px;font-size:13px">Colour on the schedule <input type="color" value="${CABINS().color}" data-ch="cabin-color"></label>
+      <p class="help" style="margin:6px 0 0">50/50s start cabins at the "from" time and do ${R().dayHours / 2}h there (the "to" time is the latest they finish). Leave a day at — for no cabins that day.</p>
     </div>
     <div class="card"><h3>Phone numbers on the printout</h3>
       <table style="max-width:520px">${PHONES().map((x, i) => `<tr><td><input type="text" value="${esc(x.label)}" data-ch="phone" data-i="${i}" data-f="label" style="width:170px"></td>
@@ -2168,7 +2198,7 @@ function openShift(shift, spId, preset) {
   const working = new Set(day.working);
   const sorted = [...emps].sort((a, b) => (working.has(b.id) - working.has(a.id)) || a.name.localeCompare(b.name));
   f.emp.innerHTML = sorted.map(e => `<option value="${e.id}" ${e.id === s.emp ? 'selected' : ''}>${esc(e.name)}${working.has(e.id) ? '' : ' (not ticked in)'}</option>`).join('');
-  f.sp.innerHTML = sps.map(x => `<option value="${x.id}" ${x.id === s.sp ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+  f.sp.innerHTML = [...sps, HK_SP()].map(x => `<option value="${x.id}" ${x.id === s.sp ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
   let so = '', eo = '';
   for (let i = 0; i < SLOTS; i++) so += `<option value="${i}" ${i === s.start ? 'selected' : ''}>${slotTime(i)}</option>`;
   for (let i = 1; i <= SLOTS; i++) eo += `<option value="${i}" ${i === s.end ? 'selected' : ''}>${slotTime(i)}</option>`;
@@ -2326,16 +2356,19 @@ document.addEventListener('change', e => {
     const t = spById(id).bookingTypes[+el.dataset.i];
     t[f] = f === 'perStaff' ? Math.max(0, parseInt(el.value, 10) || 0) : (f === 'label' ? (el.value.trim() || t.label) : el.value);
   }
+  else if (ch === 'cabin') { C.cabins = {...CABINS(), days: {...(CABINS().days || {})}}; C.cabins.days[el.dataset.d] = {...(C.cabins.days[el.dataset.d] || {}), [f]: el.value}; }
+  else if (ch === 'cabin-color') { C.cabins = {...CABINS(), color: el.value}; }
   else if (ch === 'phone') { C.rules.phones = PHONES().map(x => ({...x})); C.rules.phones[+el.dataset.i][f] = el.value; }
   else if (ch === 'prio') { C.rules.prio = {...(C.rules.prio || {}), [f]: Math.max(0, parseInt(el.value) || 0)}; }
   else if (ch === 'rule') { C.rules[f] = Math.max(['minRestH', 'signOffBeforeDepMin', 'maxBeforeOpenMin', 'minBreakBlockH'].includes(f) ? 0 : 0.5, parseFloat(el.value) || 0); }
   else if (ch === 'meal') { C.rules.meals[+el.dataset.i][f] = el.value; }
   else if (ch === 'sp') { const sp = spById(id); sp[f] = ['name', 'type', 'color'].includes(f) ? el.value : Math.max(0, parseFloat(el.value) || 0); }
-  else if (ch === 'emp' && f === 'headAt' && el.value.startsWith('night:')) { const em = empById(id), t = el.value.slice(6); em.headAt = null; delete em.team; em.night = t;
+  else if (ch === 'emp' && f === 'headAt' && el.value === 'fifty') { const em = empById(id); em.headAt = null; delete em.team; delete em.night; em.fifty = true; }
+  else if (ch === 'emp' && f === 'headAt' && el.value.startsWith('night:')) { const em = empById(id), t = el.value.slice(6); em.headAt = null; delete em.team; delete em.fifty; em.night = t;
     const k = t + '-night'; if (C.positions.some(p => p.key === k) && !em.allowed.includes(k)) em.allowed.push(k); }
-  else if (ch === 'emp' && f === 'headAt' && el.value.startsWith('team:')) { const em = empById(id), t = el.value.slice(5); em.headAt = null; delete em.night; em.team = t;
+  else if (ch === 'emp' && f === 'headAt' && el.value.startsWith('team:')) { const em = empById(id), t = el.value.slice(5); em.headAt = null; delete em.night; delete em.fifty; em.team = t;
     if (!empMask(em, t).some(Boolean)) em.allowed.push(...C.positions.filter(p => p.sp === t).map(p => p.key)); }
-  else if (ch === 'emp') { const em = empById(id); if (f === 'headAt') { delete em.team; delete em.night; } em[f] = f === 'headAt' ? (el.value || null) : el.value; if (f === 'headAt' && em.headAt && !empMask({...em, headAt: null}, em.headAt).some(Boolean)) em.allowed.push(...C.positions.filter(p => p.sp === em.headAt).map(p => p.key)); }
+  else if (ch === 'emp') { const em = empById(id); if (f === 'headAt') { delete em.team; delete em.night; delete em.fifty; } em[f] = f === 'headAt' ? (el.value || null) : el.value; if (f === 'headAt' && em.headAt && !empMask({...em, headAt: null}, em.headAt).some(Boolean)) em.allowed.push(...C.positions.filter(p => p.sp === em.headAt).map(p => p.key)); }
   else if (ch === 'emp-rank') { const em = empById(id); em[f] = el.checked; }
   else if (ch === 'emp-allowed') { const em = empById(id), k = el.dataset.p; em.allowed = el.checked ? [...new Set([...em.allowed, k])] : em.allowed.filter(x => x !== k); }
   else if (ch === 'pos') { const ps = C.positions[+el.dataset.i]; ps[f] = f === 'label' ? (el.value.trim() || ps.label) : el.value; }
