@@ -492,6 +492,11 @@ function ensureConfig(c) {
     const ps = (lt.thu || {}).periods || [];
     if (!ps.length || (ps.length === 1 && ps[0].close === '02:30')) lt.thu = clone(OPENING_2026.high.laterna.thu);
   }
+  if (!c.skansTeamRule) { const sk = c.salesPoints.find(x => x.id === 'skansagardur');
+    // headwaiter + 3 waiters at breakfast, 2 at lunch (3 above 75 lunch bookings, never more), headwaiter + 4 at dinner; Placeur on top
+    if (sk) { sk.morningPrep = {...(sk.morningPrep || {before: 0, after: 90}), staff: 4}; sk.baseStaff = 5;
+      if (sk.lunchPrep) sk.lunchPrep = {...sk.lunchPrep, staff: 2, max: 3, extraOver: 75}; }
+    c.skansTeamRule = true; changed = true; }
   if (!c.nightCrewRule) { c.salesPoints.forEach(sp => { if (sp.id === 'noatun') sp.nightCrew = 2; }); c.nightCrewRule = true; changed = true; }
   if (c.seasons && (c.openingVersion || 1) < 2) {
     if (c.seasons.high) (c.seasons.high.hours ||= {}).skansagardur = clone(OPENING_2026.high.skansagardur); // new buffet lunch 12-14
@@ -744,7 +749,8 @@ function computeNeed(date, day, planning = true) {
       const mp = isBreakfast && sp.morningPrep ? sp.morningPrep : isLunch && sp.lunchPrep ? sp.lunchPrep : null; // own settings for breakfast / lunch
       const b4 = mp ? Math.ceil((+mp.before || 0) / 30) : pre;
       const af = mp ? Math.ceil((+mp.after || 0) / 30) : (c < lastClose && sp.midCloseMin !== undefined ? Math.ceil(+sp.midCloseMin / 30) : post);
-      const svcBase = mp && +mp.staff > 0 ? +mp.staff : base; // breakfast can have its own staff count
+      let svcBase = mp && +mp.staff > 0 ? +mp.staff : base; // breakfast can have its own staff count
+      if (isLunch && mp && +mp.extraOver > 0 && (+((day.bookings || {})[sp.id] || {}).lunch || 0) > +mp.extraOver) svcBase += 1; // e.g. buffet lunch: 3rd person above 75 bookings
       for (let s = Math.max(0, o - b4); s < Math.min(SLOTS, c + af); s++) { arr[s] = svcBase; if (mp && +mp.max > 0) capSlots[s] = +mp.max; }
       for (let s = Math.max(0, o - b4); s < o; s++) prepSlots.add(s);
     });
@@ -977,9 +983,9 @@ function generate(date, day) {
   // like step 2 (nobody there at all must never happen).
   const tiers = tierNeeds(date, day, need), maxP = TIER_W(2);
   const slotW = (sp, k, c) => Math.max(TIER_W(tierOf(tiers, sp.id, k, c)), c === 0 && need[sp.id][k] > 0 ? TIER_W(2) : 0);
-  function bestPlan(e, homeWeight, homeSp = e.headAt, ext = 6, mustHome = false, mustRange = null) {
+  function bestPlan(e, homeWeight, homeSp = e.headAt, ext = 6, mustHome = false, mustRange = null, homeOnly = false) {
     const E = earliestStart(e, date), T = targetSlots(e, day);
-    const info = sps.map(sp => {
+    const info = sps.filter(sp => !homeOnly || sp.id === homeSp).map(sp => {
       const m = empMask(e, sp.id), n = need[sp.id], c = cover[sp.id], home = homeWeight && sp.id === homeSp, w = home ? homeWeight : 1, cw = capWin[sp.id], lc = lunchCap[sp.id];
       // at their own place, headwaiters/team may make up hours by staying after closing (up to 3h),
       // but never come in more than "maxBeforeOpenMin" before an opening
@@ -1079,6 +1085,24 @@ function generate(date, day) {
     if (a < earliestStart(e, date)) notes.push(`${e.name} (50/50) starts cabins at ${slotTime(a)} without ${R().minRestH}h rest.`);
     shifts.push({id: uid(), emp: e.id, sp: 'hk', start: a, end: b, fixed: 'hk'}); used.add(e.id); fifties.push([e, a, b]);
   });
+  // 0b) Skansagardur headwaiters always work at Skansagardur: breakfast and dinner service (both of them, if both are in)
+  { const sk = sps.find(x => x.id === 'skansagardur'), skH = sk && spHours(sk, date, day);
+    const sw = sk && skH.periods.length ? serviceWindows(sk, date, day) : [];
+    const bw = sw.find(w => w.kind === 'breakfast'), dw = sw.find(w => w.kind === 'dinner');
+    pool.filter(e => e.headAt === 'skansagardur' && !used.has(e.id) && sw.length).forEach(e => {
+      const T = targetSlots(e, day), [w0, w1] = signWindow(e, date, day), m = empMask(e, 'skansagardur');
+      const fits = (a, b) => a >= w0 && b <= w1 && b <= SLOTS && a >= earliestStart(e, date) && [...Array(b - a).keys()].every(i => m[a + i]);
+      if (bw && dw && !(day.signing || []).includes(e.id)) {
+        const b1 = Math.min(bw.b, bw.a + T), a2 = dw.a, b2 = Math.min(SLOTS, a2 + T - (b1 - bw.a));
+        if (fits(bw.a, b1) && b2 > a2 && fits(a2, b2)) {
+          shifts.push({id: uid(), emp: e.id, sp: 'skansagardur', start: bw.a, end: b1, fixed: 'headwaiter', role: 'hw'});
+          shifts.push({id: uid(), emp: e.id, sp: 'skansagardur', start: a2, end: b2, fixed: 'headwaiter', role: 'hw'});
+          for (let k = bw.a; k < b1; k++) cover.skansagardur[k]++; for (let k = a2; k < b2; k++) cover.skansagardur[k]++;
+          used.add(e.id); return;
+        }
+      }
+    });
+  }
   // 0) Fixed rules, always applied first
   const nm = id => (empById(id) || {}).name || '?';
   const signing = new Set(day.signing || []);
@@ -1341,7 +1365,7 @@ function generate(date, day) {
   });
 
   // 1) Other headwaiters: their own place first (topped up elsewhere if it isn't open long enough)
-  free().filter(e => homeOpen(e)).forEach(e => { const p = bestPlan(e, 3); if (p) assignPlan(e, p); });
+  free().filter(e => homeOpen(e)).forEach(e => { const p = bestPlan(e, 3, e.headAt, 6, false, null, e.headAt === 'skansagardur'); if (p) assignPlan(e, p); });
   // 1b) 50/50s: the restaurant half, right before or after cabins, or with a proper break in between
   fifties.forEach(([e, a, b]) => topUp(e, [[a, b]], true));
 
@@ -1952,6 +1976,7 @@ function renderSetup() {
       <label>Breakfast: stay after (min) <input type="number" min="0" step="30" value="${sp.morningPrep.after}" data-ch="mprep" data-id="${sp.id}" data-f="after"></label>
       <label>Breakfast: staff (0 = same as above) <input type="number" min="0" value="${sp.morningPrep.staff || 0}" data-ch="mprep" data-id="${sp.id}" data-f="staff"></label>` : ''}
       ${sp.lunchPrep ? `<label>Lunch: staff <input type="number" min="1" value="${sp.lunchPrep.staff}" data-ch="lprep" data-id="${sp.id}" data-f="staff"></label>
+      <label>Lunch: one more above … bookings (0 = off) <input type="number" min="0" value="${sp.lunchPrep.extraOver || 0}" data-ch="lprep" data-id="${sp.id}" data-f="extraOver"></label>
       <label>Lunch: never more than <input type="number" min="1" value="${sp.lunchPrep.max}" data-ch="lprep" data-id="${sp.id}" data-f="max"></label>
       <label>Lunch: arrive before (min) <input type="number" min="0" step="30" value="${sp.lunchPrep.before}" data-ch="lprep" data-id="${sp.id}" data-f="before"></label>
       <label>Lunch: stay after (min) <input type="number" min="0" step="30" value="${sp.lunchPrep.after}" data-ch="lprep" data-id="${sp.id}" data-f="after"></label>` : ''}
@@ -2057,7 +2082,7 @@ function renderSetup() {
         <li>Laterna Magica and Undirhusid: at least 1 person whenever open. Closing staff work 10h straight, finishing at 03:00. Noatun: never fewer than <input type="number" min="0" max="9" style="width:52px" value="${P.noatunMin}" data-ch="prio" data-f="noatunMin"> people while open (headwaiter included).</li>
         <li>Munkastova: a second person if the bookings need one (up to <input type="number" min="1" max="9" style="width:52px" value="${P.munkSecond}" data-ch="prio" data-f="munkSecond"> people).</li>
         <li>Noatun closing shift: <input type="number" min="0" max="9" style="width:52px" value="${P.noatunClose}" data-ch="prio" data-f="noatunClose"> people (the Noatun night position's hours).</li>
-        <li>Buffet team: breakfast <input type="number" min="0" max="20" style="width:52px" value="${P.buffetBreakfast}" data-ch="prio" data-f="buffetBreakfast"> besides Placeur and headwaiter, lunch <input type="number" min="0" max="20" style="width:52px" value="${P.buffetLunch}" data-ch="prio" data-f="buffetLunch"> in total, dinner <input type="number" min="0" max="20" style="width:52px" value="${P.buffetDinner}" data-ch="prio" data-f="buffetDinner"> besides Placeur and headwaiter.</li>
+        <li>Buffet team: breakfast <input type="number" min="0" max="20" style="width:52px" value="${P.buffetBreakfast}" data-ch="prio" data-f="buffetBreakfast"> besides Placeur and headwaiter, lunch up to <input type="number" min="0" max="20" style="width:52px" value="${P.buffetLunch}" data-ch="prio" data-f="buffetLunch"> in total (2, or 3 above 75 lunch bookings — set on the Skansagardur card), dinner <input type="number" min="0" max="20" style="width:52px" value="${P.buffetDinner}" data-ch="prio" data-f="buffetDinner"> besides Placeur and headwaiter.</li>
         <li>Noatun waiters: breakfast <input type="number" min="0" max="9" style="width:52px" value="${P.noatunBreakfast}" data-ch="prio" data-f="noatunBreakfast"> plus headwaiter, lunch <input type="number" min="0" max="9" style="width:52px" value="${P.noatunLunch}" data-ch="prio" data-f="noatunLunch"> plus headwaiter, dinner <input type="number" min="0" max="9" style="width:52px" value="${P.noatunDinner}" data-ch="prio" data-f="noatunDinner"> in total.</li>
         <li>Munkastova: a third person if available and the bookings need one (up to <input type="number" min="1" max="9" style="width:52px" value="${P.munkThird}" data-ch="prio" data-f="munkThird"> people).</li>
         <li>Everyone else: the extra rules (passenger table, extra Laterna waiter around arrival/departure, full buffet staffing, bookings).</li></ol>`)(PRIO())}
