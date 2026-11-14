@@ -408,7 +408,7 @@ const timeOptsNone = sel => `<option value=""${sel ? '' : ' selected'}>—</opti
 // Opening hours from OPENING_HOURS_2026.xls (ship time, updated version with buffet lunch in high season), per season, per sales point, per weekday.
 // '?' closing times = 02:30; times after midnight belong to the previous schedule day.
 const SEASON_LABELS = {winter: 'Winter', shoulder: 'Shoulder', high: 'High season'};
-const OPENING_2026 = {"winter":{"laterna":{"mon":{"periods":[{"open":"09:00","close":"00:00"}]},"tue":{"periods":[]},"wed":{"periods":[]},"thu":{"periods":[]},"fri":{"periods":[{"open":"18:00","close":"00:00"}]},"sat":{"periods":[{"open":"09:00","close":"00:00"}]},"sun":{"periods":[{"open":"08:00","close":"10:00"},{"open":"12:30","close":"00:00"}]}},"undirhusid":{"mon":{"periods":[]},"tue":{"periods":[]},"wed":{"periods":[]},"thu":{"periods":[]},"fri":{"periods":[]},"sat":{"periods":[]},"sun":{"periods":[]}},"noatun":{"mon":{"periods":[{"open":"07:00","close":"21:00"}]},"tue":{"periods":[{"open":"06:00","close":"07:30"}]},"wed":{"periods":[]},"thu":{"periods":[]},"fri":{"periods":[{"open":"18:00","close":"21:00"}]},"sat":{"periods":[{"open":"07:00","close":"21:00"}]},"sun":{"periods":[{"open":"07:00","close":"10:00"},{"open":"12:30","close":"21:00"}]}},"skansagardur":{"mon":{"periods":[]},"tue":{"periods":[]},"wed":{"periods":[]},"thu":{"periods":[]},"fri":{"periods":[]},"sat":{"periods":[]},"sun":{"periods":[]}},"munkastova":{"mon":{"periods":[{"open":"12:00","close":"14:00"},{"open":"18:00","close":"20:00"}]},"tue":{"periods":[]},"wed":{"periods":[]},"thu":{"periods":[]},"fri":{"periods":[{"open":"18:00","close":"21:00"}]},"sat":{"periods":[{"open":"12:00","close":"14:00"},{"open":"18:00","close":"20:00"}]},"sun":{"periods":[{"open":"18:00","close":"20:00"}]}}},"shoulder":{"undirhusid":{"mon":{"periods":[{"open":"09:00","close":"02:30"}]},"tue":{"periods":[{"open":"10:00","close":"02:30"}]},"wed":{"periods":[{"open":"17:00","close":"02:30"}]},"thu":{"periods":[{"open":"17:00","close":"02:30"}]},"fri":{"periods":[{"open":"09:00","close":"02:30"}]},"sat":{"periods":[{"open":"09:00","close":"02:30"}]},"sun":{"periods":[{"open":"12:00","close":"02:30"}]}},"laterna":{"mon":{"periods":[{"open":"08:00","close":"02:30"}]},"tue":{"periods":[{"open":"07:00","close":"02:30"}]},"wed":{"periods":[{"open":"07:00","close":"10:00"},{"open":"17:00","close":"02:30"}]},"thu":{"periods":[{"open":"17:00","close":"02:30"}]},"fri":{"periods":[{"open":"08:00","close":"02:30"}]},"sat":{"periods":[{"open":"08:00","close":"02:30"}]},"sun":{"periods":[{"open":"07:00","close":"10:00"},{"open":"12:30","close":"02:30"}]}},"noatun":{"mon":{"periods":[{"open":"07:00","close":"21:00"}]},"tue":{"periods":[{"open":"06:00","close":"21:00"}]},"wed":{"periods":[{"open":"07:00","close":"18:00"}]},"thu":{"periods":[{"open":"07:00","close":"22:00"}]},"fri":{"periods":[{"open":"07:00","close":"22:00"}]},"sat":{"periods":[{"open":"07:00","close":"21:00"}]},"sun":{"periods":[{"open":"07:00","close":"10:00"},{"open":"12:30","close":"21:00"}]}},"skansagardur":{"mon":{"periods":[{"open":"07:00","close":"10:00"},{"open":"17:30","close":"21:00"}]},"tue":{"periods":[{"open":"06:00","close":"09:00"},{"open":"17:30","close":"21:00"}]},"wed":{"periods":[{"open":"07:00","close":"10:00"},{"open":"18:30","close":"22:00"}]},"thu":{"periods":[{"open":"07:00","close":"10:00"},{"open":"18:30","close":"22:00"}]},"fri":{"periods":[{"open":"07:00","close":"10:00"},{"open":"18:00","close":"21:30"}]},"sat":{"periods":[{"open":"07:00","close":"10:00"},{"open":"17:30","close":"21:00"}]},"sun":{"periods":[{"open":"07:00","close":"10:00"},{"open":"17:30","close":"21:00"}]}},"munkastova":{"mon":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"tue":{"periods":[{"open":"13:00","close":"15:00"},{"open":"17:30","close":"21:00"}]},"wed":{"periods":[]},"thu":{"periods":[{"open":"18:00","close":"21:30"}]},"fri":{"periods":[{"open":"12:00","close":"14:00"},{"open":"18:00","close":"21:30"}]},"sat":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"sun":{"periods":[{"open":"17:30","close":"21:00"}]}}},"high":{"undirhusid":{"mon":{"periods":[{"open":"09:00","close":"02:30"}]},"tue":{"periods":[{"open":"08:00","close":"02:30"}]},"wed":{"periods":[{"open":"09:00","close":"02:30"}]},"thu":{"periods":[{"open":"08:00","close":"02:30"}]},"fri":{"periods":[{"open":"09:00","close":"03:00"}]},"sat":{"periods":[{"open":"09:00","close":"11:30"},{"open":"13:00","close":"02:30"}]},"sun":{"periods":[{"open":"09:00","close":"02:30"}]}},"laterna":{"mon":{"periods":[{"open":"08:00","close":"02:30"}]},"tue":{"periods":[{"open":"06:30","close":"02:30"}]},"wed":{"periods":[{"open":"08:00","close":"02:30"}]},"thu":{"periods":[{"open":"08:00","close":"02:30"}]},"fri":{"periods":[{"open":"08:00","close":"02:30"}]},"sat":{"periods":[{"open":"08:00","close":"11:30"},{"open":"13:00","close":"02:30"}]},"sun":{"periods":[{"open":"08:00","close":"02:30"}]}},"noatun":{"mon":{"periods":[{"open":"07:00","close":"22:00"}]},"tue":{"periods":[{"open":"06:00","close":"22:00"}]},"wed":{"periods":[{"open":"07:00","close":"22:00"}]},"thu":{"periods":[{"open":"06:30","close":"22:00"},{"open":"01:00","close":"04:30"}]},"fri":{"periods":[{"open":"07:00","close":"22:00"}]},"sat":{"periods":[{"open":"07:00","close":"11:30"},{"open":"13:00","close":"22:00"}]},"sun":{"periods":[{"open":"07:00","close":"01:00"}]}},"skansagardur":{"mon":{"periods":[{"open":"07:00","close":"10:00"},{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"tue":{"periods":[{"open":"06:00","close":"08:30"},{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"wed":{"periods":[{"open":"07:00","close":"10:00"},{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"thu":{"periods":[{"open":"06:30","close":"09:30"},{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"fri":{"periods":[{"open":"07:00","close":"10:00"},{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"sat":{"periods":[{"open":"07:00","close":"10:00"},{"open":"17:30","close":"21:00"}]},"sun":{"periods":[{"open":"07:00","close":"10:00"},{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]}},"munkastova":{"mon":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"tue":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"wed":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"thu":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"fri":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"sat":{"periods":[{"open":"17:30","close":"21:00"}]},"sun":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]}}}};
+const OPENING_2026 = {"winter":{"laterna":{"mon":{"periods":[{"open":"09:00","close":"00:00"}]},"tue":{"periods":[]},"wed":{"periods":[]},"thu":{"periods":[]},"fri":{"periods":[{"open":"18:00","close":"00:00"}]},"sat":{"periods":[{"open":"09:00","close":"00:00"}]},"sun":{"periods":[{"open":"08:00","close":"10:00"},{"open":"12:30","close":"00:00"}]}},"undirhusid":{"mon":{"periods":[]},"tue":{"periods":[]},"wed":{"periods":[]},"thu":{"periods":[]},"fri":{"periods":[]},"sat":{"periods":[]},"sun":{"periods":[]}},"noatun":{"mon":{"periods":[{"open":"07:00","close":"21:00"}]},"tue":{"periods":[{"open":"06:00","close":"07:30"}]},"wed":{"periods":[]},"thu":{"periods":[]},"fri":{"periods":[{"open":"18:00","close":"21:00"}]},"sat":{"periods":[{"open":"07:00","close":"21:00"}]},"sun":{"periods":[{"open":"07:00","close":"10:00"},{"open":"12:30","close":"21:00"}]}},"skansagardur":{"mon":{"periods":[]},"tue":{"periods":[]},"wed":{"periods":[]},"thu":{"periods":[]},"fri":{"periods":[]},"sat":{"periods":[]},"sun":{"periods":[]}},"munkastova":{"mon":{"periods":[{"open":"12:00","close":"14:00"},{"open":"18:00","close":"20:00"}]},"tue":{"periods":[]},"wed":{"periods":[]},"thu":{"periods":[]},"fri":{"periods":[{"open":"18:00","close":"21:00"}]},"sat":{"periods":[{"open":"12:00","close":"14:00"},{"open":"18:00","close":"20:00"}]},"sun":{"periods":[{"open":"18:00","close":"20:00"}]}}},"shoulder":{"undirhusid":{"mon":{"periods":[{"open":"09:00","close":"02:30"}]},"tue":{"periods":[{"open":"10:00","close":"02:30"}]},"wed":{"periods":[{"open":"17:00","close":"02:30"}]},"thu":{"periods":[{"open":"17:00","close":"02:30"}]},"fri":{"periods":[{"open":"09:00","close":"02:30"}]},"sat":{"periods":[{"open":"09:00","close":"02:30"}]},"sun":{"periods":[{"open":"12:00","close":"02:30"}]}},"laterna":{"mon":{"periods":[{"open":"08:00","close":"02:30"}]},"tue":{"periods":[{"open":"07:00","close":"02:30"}]},"wed":{"periods":[{"open":"07:00","close":"10:00"},{"open":"17:00","close":"02:30"}]},"thu":{"periods":[{"open":"17:00","close":"02:30"}]},"fri":{"periods":[{"open":"08:00","close":"02:30"}]},"sat":{"periods":[{"open":"08:00","close":"02:30"}]},"sun":{"periods":[{"open":"07:00","close":"10:00"},{"open":"12:30","close":"02:30"}]}},"noatun":{"mon":{"periods":[{"open":"07:00","close":"21:00"}]},"tue":{"periods":[{"open":"06:00","close":"21:00"}]},"wed":{"periods":[{"open":"07:00","close":"18:00"}]},"thu":{"periods":[{"open":"07:00","close":"22:00"}]},"fri":{"periods":[{"open":"07:00","close":"22:00"}]},"sat":{"periods":[{"open":"07:00","close":"21:00"}]},"sun":{"periods":[{"open":"07:00","close":"10:00"},{"open":"12:30","close":"21:00"}]}},"skansagardur":{"mon":{"periods":[{"open":"07:00","close":"10:00"},{"open":"17:30","close":"21:00"}]},"tue":{"periods":[{"open":"06:00","close":"09:00"},{"open":"17:30","close":"21:00"}]},"wed":{"periods":[{"open":"07:00","close":"10:00"},{"open":"18:30","close":"22:00"}]},"thu":{"periods":[{"open":"07:00","close":"10:00"},{"open":"18:30","close":"22:00"}]},"fri":{"periods":[{"open":"07:00","close":"10:00"},{"open":"18:00","close":"21:30"}]},"sat":{"periods":[{"open":"07:00","close":"10:00"},{"open":"17:30","close":"21:00"}]},"sun":{"periods":[{"open":"07:00","close":"10:00"},{"open":"17:30","close":"21:00"}]}},"munkastova":{"mon":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"tue":{"periods":[{"open":"13:00","close":"15:00"},{"open":"17:30","close":"21:00"}]},"wed":{"periods":[]},"thu":{"periods":[{"open":"18:00","close":"21:30"}]},"fri":{"periods":[{"open":"12:00","close":"14:00"},{"open":"18:00","close":"21:30"}]},"sat":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"sun":{"periods":[{"open":"17:30","close":"21:00"}]}}},"high":{"undirhusid":{"mon":{"periods":[{"open":"09:00","close":"02:30"}]},"tue":{"periods":[{"open":"08:00","close":"02:30"}]},"wed":{"periods":[{"open":"09:00","close":"02:30"}]},"thu":{"periods":[{"open":"08:00","close":"02:30"}]},"fri":{"periods":[{"open":"09:00","close":"03:00"}]},"sat":{"periods":[{"open":"09:00","close":"11:30"},{"open":"13:00","close":"02:30"}]},"sun":{"periods":[{"open":"09:00","close":"02:30"}]}},"laterna":{"mon":{"periods":[{"open":"08:00","close":"02:30"}]},"tue":{"periods":[{"open":"06:30","close":"02:30"}]},"wed":{"periods":[{"open":"08:00","close":"02:30"}]},"thu":{"periods":[{"open":"08:00","close":"04:30"}]},"fri":{"periods":[{"open":"08:00","close":"02:30"}]},"sat":{"periods":[{"open":"08:00","close":"11:30"},{"open":"13:00","close":"02:30"}]},"sun":{"periods":[{"open":"08:00","close":"02:30"}]}},"noatun":{"mon":{"periods":[{"open":"07:00","close":"22:00"}]},"tue":{"periods":[{"open":"06:00","close":"22:00"}]},"wed":{"periods":[{"open":"07:00","close":"22:00"}]},"thu":{"periods":[{"open":"06:30","close":"22:00"},{"open":"01:00","close":"04:30"}]},"fri":{"periods":[{"open":"07:00","close":"22:00"}]},"sat":{"periods":[{"open":"07:00","close":"11:30"},{"open":"13:00","close":"22:00"}]},"sun":{"periods":[{"open":"07:00","close":"01:00"}]}},"skansagardur":{"mon":{"periods":[{"open":"07:00","close":"10:00"},{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"tue":{"periods":[{"open":"06:00","close":"08:30"},{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"wed":{"periods":[{"open":"07:00","close":"10:00"},{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"thu":{"periods":[{"open":"06:30","close":"09:30"},{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"fri":{"periods":[{"open":"07:00","close":"10:00"},{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"sat":{"periods":[{"open":"07:00","close":"10:00"},{"open":"17:30","close":"21:00"}]},"sun":{"periods":[{"open":"07:00","close":"10:00"},{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]}},"munkastova":{"mon":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"tue":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"wed":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"thu":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"fri":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]},"sat":{"periods":[{"open":"17:30","close":"21:00"}]},"sun":{"periods":[{"open":"12:00","close":"14:00"},{"open":"17:30","close":"21:00"}]}}}};
 // Which season applies when (from the sailing schedules). Edit in Setup.
 const DEFAULT_SEASON_RANGES = [
   {from: '2026-09-05', to: '2026-11-22', season: 'shoulder'},
@@ -419,7 +419,7 @@ const DEFAULT_SEASON_RANGES = [
   {from: '2027-11-21', to: '2027-12-31', season: 'winter'}
 ];
 function loadOpening2026(c) {
-  c.seasons = {}; c.openingVersion = 2;
+  c.seasons = {}; c.openingVersion = 3;
   Object.keys(SEASON_LABELS).forEach(k => c.seasons[k] = {label: SEASON_LABELS[k], hours: clone(OPENING_2026[k] || {})});
 }
 
@@ -486,10 +486,17 @@ function ensureConfig(c) {
     if (!c.fixedRules.some(r => r.type === 'cover' && r.window === 'lunch')) c.fixedRules.push({type: 'cover', sp: 'skansagardur', window: 'lunch'});
     c.lunchRules = true; changed = true;
   }
+  if (c.seasons && (c.openingVersion || 1) < 3 && c.seasons.high) { // high season Thursday: Laterna open until 04:30 (night port call)
+    const lt = ((c.seasons.high.hours ||= {}).laterna ||= {});
+    const ps = (lt.thu || {}).periods || [];
+    if (!ps.length || (ps.length === 1 && ps[0].close === '02:30')) lt.thu = clone(OPENING_2026.high.laterna.thu);
+  }
+  if (!c.nightCrewRule) { c.salesPoints.forEach(sp => { if (sp.id === 'noatun') sp.nightCrew = 2; }); c.nightCrewRule = true; changed = true; }
   if (c.seasons && (c.openingVersion || 1) < 2) {
     if (c.seasons.high) (c.seasons.high.hours ||= {}).skansagardur = clone(OPENING_2026.high.skansagardur); // new buffet lunch 12-14
     c.openingVersion = 2; changed = true;
   }
+  if (c.seasons && (c.openingVersion || 1) < 3) { c.openingVersion = 3; changed = true; }
   if (!c.seasons) {
     loadOpening2026(c); c.seasonRanges = clone(DEFAULT_SEASON_RANGES);
     // cleaning on closed days: only on Wednesdays (Undirhusid and Munkastova), otherwise every closed day in winter
@@ -699,6 +706,9 @@ function tierNeeds(date, day, need) {
 // Which priority step a still-missing person at (sp, k) belongs to, given 'c' people already there.
 const tierOf = (tiers, id, k, c) => { for (let t = 1; t <= 8; t++) if (c < tiers[t][id][k]) return t; return 0; };
 const TIER_W = t => t ? Math.pow(6, 8 - t) : 0;
+// A service that opens after midnight following a closed gap (e.g. Noatun 01:00-04:30 on a night port call).
+const nightPeriod = h => { const ps = [...(h.periods || [])].sort((a, b) => toSlot(a.open) - toSlot(b.open));
+  return ps.find((p, i) => i > 0 && toSlot(p.open) >= toSlot('00:00') && toSlot(p.open) > endSlot(ps[i - 1].close)) || null; };
 function computeNeed(date, day, planning = true) {
   const need = {};
   for (const sp of cfg().salesPoints) {
@@ -748,6 +758,9 @@ function computeNeed(date, day, planning = true) {
       if (add) for (let s = toSlot(t.from); s < endSlot(t.to); s++) if (open[s]) arr[s] += add;
     });
     if (+sp.maxStaff > 0) for (let s = 0; s < SLOTS; s++) arr[s] = Math.min(arr[s], +sp.maxStaff);
+    // reopening after midnight (e.g. Noatun 01:00-04:30 on a night port call): just the night crew
+    const np = nightPeriod(h);
+    if (np && +sp.nightCrew > 0) for (let s = Math.max(0, toSlot(np.open) - pre); s < SLOTS; s++) if (arr[s] > 0) arr[s] = Math.min(arr[s], +sp.nightCrew);
     // bars: after midnight one person is enough (the closer), whatever the passenger table says
     if (+sp.lateMax > 0) for (let s = toSlot('00:00'); s < SLOTS; s++) if (arr[s] > 0) arr[s] = Math.min(arr[s], +sp.lateMax);
     for (const k in capSlots) arr[k] = Math.min(arr[k], capSlots[k]); // e.g. buffet lunch: never more than 3
@@ -1067,9 +1080,11 @@ function generate(date, day) {
   const notMine = (e, r) => reserved.has(e.id) && reserved.get(e.id) !== r;
   const firstOpenSlot = h => Math.min(...h.periods.map(p => toSlot(p.open)));
   const closerOf = spId => FR.find(r => r.type === 'closer' && r.sp === spId && r.alone);
-  // closing shift ends at the rule's time, or earlier if the place closes earlier (plus "stay after closing")
+  // closing shift ends at the rule's time, or earlier if the place closes earlier (plus "stay after closing");
+  // if the place is open past that time (e.g. Laterna until 04:30 on a night port call) it follows the closing time
   const closerEnd = (r, h) => { const sp = spById(r.sp), last = Math.max(...h.periods.map(p => endSlot(p.close)));
-    return Math.min(endSlot(r.end), Math.min(SLOTS, last + Math.ceil((+sp.closeMin || 0) / 30))); };
+    const byClose = Math.min(SLOTS, last + Math.ceil((+sp.closeMin || 0) / 30));
+    return last > endSlot(r.end) ? byClose : Math.min(endSlot(r.end), byClose); };
   const holderNote = (r, e, what) => {
     const h = holders.get(r);
     if (h && h.streak < 7 && h.emp !== (e && e.id)) notes.push(`${nm(h.emp)} has ${what} ${spById(r.sp).name} ${h.streak} day${h.streak > 1 ? 's' : ''} in a row but can't today${e ? `; ${e.name} does it instead` : ''}.`);
@@ -1078,7 +1093,9 @@ function generate(date, day) {
 
   const order = r => r.type === 'opener' ? (r.who === 'headwaiter' ? 0 : 2) : r.type === 'closer' ? 1 : r.type === 'cover' ? (r.window === 'lunch' ? 4 : 2.5) : r.type === 'team' ? 3 : 4; // Placeur after the bars' opening/closing shifts, before Munkastova
   // Night-shift people at a place without its own closing rule (Noatun): the closing shift, right after the bars' closers
-  const nightRules = [...new Set(pool.filter(e => e.night).map(e => e.night))].filter(id => spById(id) && !FR.some(r => r.type === 'closer' && r.sp === id)).map(id => ({type: 'night', sp: id}));
+  const nightRules = [...new Set([...pool.filter(e => e.night).map(e => e.night),
+    ...sps.filter(sp => +sp.nightCrew > 0 && nightPeriod(spHours(sp, date, day))).map(sp => sp.id)])]
+    .filter(id => spById(id) && !FR.some(r => r.type === 'closer' && r.sp === id)).map(id => ({type: 'night', sp: id}));
   [...FR, ...nightRules].sort((a, b) => (a.type === 'night' ? 1.5 : order(a)) - (b.type === 'night' ? 1.5 : order(b))).forEach(r => {
     const sp = spById(r.sp); if (!sp) return;
     const cleaningDay = !isOpenDay(r.sp) && need[r.sp].some(x => x > 0);
@@ -1086,21 +1103,38 @@ function generate(date, day) {
     if (!isOpenDay(r.sp) && !(r.type === 'team' && (cleaningDay || fixedDay))) return;
     const h = spHours(sp, date, day);
     if (r.type === 'night') {
-      // one block ending when the place's last service is cleared, as long as the end of the night still needs people
       let last = -1; need[r.sp].forEach((x, k) => { if (x > 0) last = k; });
       if (last < 0) return;
-      const end = last + 1;
+      const end = last + 1, np = nightPeriod(h);
+      if (np && +sp.nightCrew > 0) {
+        // Night port call: the night crew (nightshift people first, then extra waiters) works one 10h block
+        // to the end of the night service, e.g. 19:00-05:00, straight through the closed hours in between.
+        const blockOf = e => { const T = targetSlots(e, day), [w0, w1] = signWindow(e, date, day), m = empMask(e, r.sp);
+          const a = end - T, b = end; if (oneBlock(e) || a < w0 || b > w1 || a < earliestStart(e, date)) return null;
+          for (let k = a; k < b; k++) if (!m[k]) return null; return [a, b]; };
+        const nightP = free().filter(e => e.night === r.sp && !notMine(e, r));
+        const extras = free().filter(e => !e.night && !notMine(e, r) && !(homeOpen(e) && e.headAt !== r.sp) && !(e.headAt && e.headAt !== r.sp))
+          .sort((a, b) => (b.allowed.includes(r.sp + '-night') - a.allowed.includes(r.sp + '-night')) || (!!a.team - !!b.team) || flex(a) - flex(b));
+        let placed = 0;
+        for (const e of [...nightP, ...extras]) {
+          if (placed >= +sp.nightCrew) break;
+          const bl = blockOf(e);
+          if (!bl) { if (e.night === r.sp) notes.push(`${e.name} (${sp.name} night shift) can't do the night shift today.`); continue; }
+          place(e, r.sp, bl[0], bl[1], 'night', 'close'); placed++;
+        }
+        if (placed < +sp.nightCrew) notes.push(`${sp.name} night (${np.open}–${np.close}): only ${placed} of ${sp.nightCrew} people for the night shift ${slotTime(end - 20)}–${slotTime(end)}.`);
+        return;
+      }
+      // one block ending when the place's last service is cleared, as long as the end of the night still needs people
       const ppl = free().filter(e => e.night === r.sp && !notMine(e, r)).sort((a, b) => (signing.has(a.id) - signing.has(b.id)) || flex(a) - flex(b));
       for (const e of ppl) {
         if (need[r.sp][last] - cover[r.sp][last] <= 0) break;
         const T = targetSlots(e, day), [w0, w1] = signWindow(e, date, day), m = empMask(e, r.sp);
-        let run = last; while (run > 0 && need[r.sp][run - 1] > 0) run--;   // never across hours the place is closed
-        let a = Math.max(end - T, run, w0, earliestStart(e, date)); const b = Math.min(end, w1);
-        while (a < b && (!m[a] || need[r.sp][a] - cover[r.sp][a] <= 0)) a++; // only where they may work and are needed (e.g. one opener before a night opening)
+        let a = Math.max(end - T, w0, earliestStart(e, date)); const b = Math.min(end, w1);
+        while (a < b && !m[a]) a++;
         let ok = b - a >= minPartSlots(); for (let k = a; k < b && ok; k++) if (!m[k]) ok = false;
         if (!ok) { notes.push(`${e.name} (${sp.name} night shift) can't do the closing shift today.`); continue; }
         place(e, r.sp, a, b, 'night', 'close');
-        if (b - a < T && !oneBlock(e)) topUp(e, [[a, b]]);              // the rest of their day as a second part
       }
       return;
     }
@@ -1884,6 +1918,7 @@ function renderSetup() {
       <label>Stay after closing (min) <input type="number" min="0" step="30" value="${sp.closeMin}" data-ch="sp" data-id="${sp.id}" data-f="closeMin"></label>
       <label>People before opening (0 = everyone) <input type="number" min="0" value="${sp.prepStaff || 0}" data-ch="sp" data-id="${sp.id}" data-f="prepStaff"></label>
       <label title="After 00:00 never more people than this (the closer works alone)">Max people after 24:00 (0 = no limit) <input type="number" min="0" value="${sp.lateMax || 0}" data-ch="sp" data-id="${sp.id}" data-f="lateMax"></label>
+      <label title="When it reopens after midnight (night port call), this many people work one 10h block to the end of the night">Night crew when it reopens after midnight <input type="number" min="0" value="${sp.nightCrew || 0}" data-ch="sp" data-id="${sp.id}" data-f="nightCrew"></label>
       ${sp.hoursFrom ? '' : `<label>Cleaning shift when closed <span class="per"><input type="checkbox" style="width:auto" ${sp.closedClean && sp.closedClean.on ? 'checked' : ''} data-ch="clean" data-id="${sp.id}" data-f="on">
         <select data-ch="clean" data-id="${sp.id}" data-f="from" ${sp.closedClean && sp.closedClean.on ? '' : 'disabled'}>${timeOpts((sp.closedClean || {}).from || '12:00')}</select>–<select data-ch="clean" data-id="${sp.id}" data-f="to" ${sp.closedClean && sp.closedClean.on ? '' : 'disabled'}>${endOpts((sp.closedClean || {}).to || '17:00')}</select></span></label>
       ${sp.closedClean && sp.closedClean.on ? `<label>…on these days when closed <span class="per">${WD.map((d, i) => `<label class="mini"><input type="checkbox" style="width:auto" ${!sp.closedClean.days || sp.closedClean.days.includes(d) ? 'checked' : ''} data-ch="clean-day" data-id="${sp.id}" data-d="${d}">${WDL[i].slice(0, 2)}</label>`).join('')}</span></label>` : ''}`}
