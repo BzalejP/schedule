@@ -662,7 +662,7 @@ function hardCaps(sp, date, day) {
 }
 // Priority order (Setup → Priority order). Step 1 (headwaiters, Placeur) and the Laterna/Undirhusid opening
 // and closing shifts are fixed rules; the numbers here set the minimum staff that each later step secures.
-const PRIO_DEFAULT = {munkSecond: 2, noatunClose: 2, buffetBreakfast: 3, buffetLunch: 3, buffetDinner: 4, noatunBreakfast: 2, noatunLunch: 1, noatunDinner: 3, munkThird: 3};
+const PRIO_DEFAULT = {noatunMin: 2, munkSecond: 2, noatunClose: 2, buffetBreakfast: 3, buffetLunch: 3, buffetDinner: 4, noatunBreakfast: 2, noatunLunch: 1, noatunDinner: 3, munkThird: 3};
 const PRIO = () => ({...PRIO_DEFAULT, ...(R().prio || {})});
 const PHONES_DEFAULT = [
   {label: 'MANAGER', number: '4836', color: '#000000'}, {label: 'SUPERVISOR', number: '4995', color: '#000000'},
@@ -696,7 +696,10 @@ function tierNeeds(date, day, need) {
   for (let step = 2; step <= 7; step++) {
     const t = {}; sps.forEach(sp => t[sp.id] = [...prev[sp.id]]);
     const has = id => t[id] !== undefined;
-    if (step === 2) ['laterna', 'undirhusid'].filter(has).forEach(id => need[id].forEach((x, k) => { if (x > 0) setMin(t, id, k, 1); }));
+    if (step === 2) { ['laterna', 'undirhusid'].filter(has).forEach(id => need[id].forEach((x, k) => { if (x > 0) setMin(t, id, k, 1); }));
+      // Noatun is never left with one person (the headwaiter alone) while open
+      const nh = has('noatun') && spHours(spById('noatun'), date, day);
+      if (nh) need.noatun.forEach((x, k) => { if (x > 0 && isOpenAt(nh, k)) setMin(t, 'noatun', k, +P.noatunMin); }); }
     if (step === 3 && has('munkastova')) need.munkastova.forEach((x, k) => { if (x > 0) setMin(t, 'munkastova', k, +P.munkSecond); });
     if (step === 4 && has('noatun')) { const [a, b] = shiftWin('noatun', 'night'); for (let k = a; k < b; k++) if (need.noatun[k] > 0) setMin(t, 'noatun', k, +P.noatunClose); }
     if (step === 5 && has('skansagardur')) { const sk = spById('skansagardur'), hw = hwIn('skansagardur');
@@ -2051,7 +2054,7 @@ function renderSetup() {
     <div class="card"><h3>Priority order <span class="muted">who gets staffed first when there aren't enough people</span></h3>
       ${(P => `<ol style="margin:0;padding-left:20px;line-height:2">
         <li>Headwaiters at their own place, and the Placeur.</li>
-        <li>Laterna Magica and Undirhusid: at least 1 person whenever open. Closing staff work 10h straight, finishing at 03:00.</li>
+        <li>Laterna Magica and Undirhusid: at least 1 person whenever open. Closing staff work 10h straight, finishing at 03:00. Noatun: never fewer than <input type="number" min="0" max="9" style="width:52px" value="${P.noatunMin}" data-ch="prio" data-f="noatunMin"> people while open (headwaiter included).</li>
         <li>Munkastova: a second person if the bookings need one (up to <input type="number" min="1" max="9" style="width:52px" value="${P.munkSecond}" data-ch="prio" data-f="munkSecond"> people).</li>
         <li>Noatun closing shift: <input type="number" min="0" max="9" style="width:52px" value="${P.noatunClose}" data-ch="prio" data-f="noatunClose"> people (the Noatun night position's hours).</li>
         <li>Buffet team: breakfast <input type="number" min="0" max="20" style="width:52px" value="${P.buffetBreakfast}" data-ch="prio" data-f="buffetBreakfast"> besides Placeur and headwaiter, lunch <input type="number" min="0" max="20" style="width:52px" value="${P.buffetLunch}" data-ch="prio" data-f="buffetLunch"> in total, dinner <input type="number" min="0" max="20" style="width:52px" value="${P.buffetDinner}" data-ch="prio" data-f="buffetDinner"> besides Placeur and headwaiter.</li>
