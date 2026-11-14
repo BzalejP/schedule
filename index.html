@@ -597,6 +597,36 @@ const cfg = () => state.config;
 const CABINS = () => ({color: '#FF0000', days: {}, ...(cfg().cabins || {})});
 const HK_SP = () => ({id: 'hk', name: 'Housekeeping', color: CABINS().color, hours: {}, bookingTypes: [], virtual: true});
 const spById = id => id === 'hk' ? HK_SP() : cfg().salesPoints.find(s => s.id === id);
+// 50/50s are never alone in Laterna Magica: a regular waiter (not a 50/50) must be working there too, not on a break.
+const PAIRED_SP = 'laterna';
+const isFifty = id => !!(empById(id) || {}).fifty;
+const regularsAt = (shifts, breaks, sp, k) => shifts.filter(x => x.sp === sp && k >= x.start && k < x.end && !isFifty(x.emp)
+  && !(breaks || []).some(b => b.emp === x.emp && k >= b.slot && k < b.slot + b.len)).length;
+// How many regular waiters must already be in Laterna for a 50/50 to be placed there: 2 during crew meal times
+// (so one of them can take a break), otherwise 1.
+const pairNeed = k => (R().meals || []).some(m => k >= toSlot(m.from) && k < endSlot(m.to)) ? 2 : 1;
+function fiftyAlone(day) { // [{emp, k}] half hours where a 50/50 works in Laterna without a regular waiter
+  const out = [];
+  day.shifts.filter(s => s.sp === PAIRED_SP && isFifty(s.emp)).forEach(s => { for (let k = s.start; k < s.end; k++) {
+    if ((day.breaks || []).some(b => b.emp === s.emp && k >= b.slot && k < b.slot + b.len)) continue;
+    if (!regularsAt(day.shifts, day.breaks, PAIRED_SP, k)) out.push({emp: s.emp, k}); } });
+  return out;
+}
+// Fix those half hours by swapping with a regular waiter working elsewhere right then (same hours for both).
+function pairFifties(date, day) {
+  let fixed = 0;
+  for (const {emp, k} of fiftyAlone(day)) {
+    if (regularsAt(day.shifts, day.breaks, PAIRED_SP, k)) continue;
+    const f = empById(emp), onBreak = id => (day.breaks || []).some(b => b.emp === id && k >= b.slot && k < b.slot + b.len);
+    const cand = day.shifts.filter(x => x.sp !== PAIRED_SP && x.sp !== 'hk' && k >= x.start && k < x.end && !isFifty(x.emp) && !onBreak(x.emp)
+      && empMask(empById(x.emp), PAIRED_SP)[k] && empMask(f, x.sp)[k]);
+    const r = cand.find(x => !x.fixed) || cand[0];
+    if (!r) continue;
+    const other = r.sp;
+    setSlots(day, r.emp, k, k + 1, PAIRED_SP); setSlots(day, emp, k, k + 1, other); fixed++;
+  }
+  return fixed;
+}
 // Today's cabin-cleaning window for the 50/50s, or null.
 const cabinWindow = date => { const d = (CABINS().days || {})[WD[wdIndex(date)]]; return d && d.from && d.to && endSlot(d.to) > toSlot(d.from) ? [toSlot(d.from), endSlot(d.to)] : null; };
 const empById = id => cfg().employees.find(e => e.id === id);
@@ -868,6 +898,8 @@ function placeBreaks(date, day) {
         const mc = +(spById(s.sp) || {}).mealCover || 0;
         if (fits && mc) for (let j = k; j < k + bl; j++) if (isOpenAt(oh, j) && cover[s.sp][j] - 1 < floor[s.sp][j]) spare -= 100; // would leave it below its minimum
         if (fits) for (let j = k; j < k + bl; j++) if (isOpenAt(oh, j) && cover[s.sp][j] - 1 <= 0) spare -= 10000; // would leave the outlet with nobody
+        if (fits && s.sp === PAIRED_SP && !e.fifty) for (let j = k; j < k + bl; j++)                                // or a 50/50 alone in Laterna
+          if (day.shifts.some(x => x.sp === PAIRED_SP && isFifty(x.emp) && j >= x.start && j < x.end) && regularsAt(day.shifts, day.breaks, PAIRED_SP, j) - 1 <= 0) spare -= 5000;
         if (fits && (!bestB || spare > bestB.spare)) bestB = {slot: k, sp: s.sp, spare};
       }
       if (!bestB) { notes.push(`${e.name} has no room for a ${m.label.toLowerCase()} break.`); return; }
@@ -902,6 +934,8 @@ const signLabel = (e, day) => (day.signDir || {})[e.id] === 'on' ? 'signs on' : 
 
 function checkRules(date, day) {
   const out = [];
+  { const al = fiftyAlone(day), by = {}; al.forEach(({emp, k}) => (by[emp] ||= []).push(k));
+    Object.entries(by).forEach(([id, ks]) => out.push(`${empById(id).name} (50/50) is alone in Laterna Magica at ${ks.map(k => slotTime(k)).join(', ')} — a waiter must be with them.`)); }
   cfg().employees.forEach(e => {
     const blocks = workBlocks(day, e.id); if (!blocks.length) return;
     if ((day.signing || []).includes(e.id)) {
@@ -1068,8 +1102,8 @@ function generate(date, day) {
     const [fa, fb] = fixed[0], E = earliestStart(e, date); let best = null;
     for (const sp of sps) {
       const m = empMask(e, sp.id), n = need[sp.id], c = cover[sp.id], cw = capWin[sp.id], lc = lunchCap[sp.id];
-      const hc = hardCap[sp.id];
-      const ok = k => k >= E && m[k] && n[k] > 0 && hc[k] !== 'prep' && !(hc[k] && n[k] - c[k] <= 0) && !(cw && k >= cw[0] && k < cw[1] && n[k] - c[k] <= 0) && !(lc && k >= lc[0] && k < lc[1] && n[k] - c[k] <= 0);
+      const hc = hardCap[sp.id], pairOk = k => !(e.fifty && sp.id === PAIRED_SP) || regularsAt(shifts, [], PAIRED_SP, k) >= pairNeed(k);
+      const ok = k => k >= E && m[k] && n[k] > 0 && pairOk(k) && hc[k] !== 'prep' && !(hc[k] && n[k] - c[k] <= 0) && !(cw && k >= cw[0] && k < cw[1] && n[k] - c[k] <= 0) && !(lc && k >= lc[0] && k < lc[1] && n[k] - c[k] <= 0);
       for (let L = left; L >= minPart; L--) {
         let found = false;
         for (let a = 0; a + L <= SLOTS; a++) {
@@ -1445,6 +1479,7 @@ function generate(date, day) {
           const k = side === 'end' ? sh.end : sh.start - 1;
           if (k < 0 || k >= SLOTS || k < w0 || k >= w1 || mine.some(x => k >= x.start && k < x.end)) continue;
           if (!empMask(e, sh.sp)[k]) continue;
+          if (e.fifty && sh.sp === PAIRED_SP && regularsAt(shifts, [], PAIRED_SP, k) < pairNeed(k)) continue;
           if (side === 'start' && k < earliestStart(e, date)) continue;
           const cw = capWin[sh.sp], wholeDay = cw && cw[0] === 0 && cw[1] === SLOTS; // Munkastova, Placeur, cleaning: never extra
           if (hardCap[sh.sp][k] === 'prep' || ((hardCap[sh.sp][k] || wholeDay) && n[k] - c[k] <= 0)) continue;
@@ -1471,6 +1506,7 @@ function generate(date, day) {
           for (let k = side === 'end' ? sh.end : sh.start - 1; L < left; k += d, L++) {
             if (k < 0 || k >= SLOTS || k < w0 || k >= w1 || !m[k] || hardCap[sp2.id][k] === 'prep' || (over ? !(n[k] > 0) || hardCap[sp2.id][k] || (capWin[sp2.id] && capWin[sp2.id][0] === 0 && capWin[sp2.id][1] === SLOTS) : !(n[k] - c[k] > 0)) || mine.some(x => k >= x.start && k < x.end)) break;
             if (side === 'start' && k < earliestStart(e, date)) break;
+            if (e.fifty && sp2.id === PAIRED_SP && regularsAt(shifts, [], PAIRED_SP, k) < pairNeed(k)) break;
             g += over ? c[k] - n[k] : slotW(sp2, k, c[k]);
           }
           if (L < Math.min(left, 2)) continue;
@@ -1533,6 +1569,7 @@ function coverBreaks(date, day) {
       // someone working elsewhere right then walks over for the break (same hours, the bar is never left empty)
       for (const s of day.shifts) {
         const e = empById(s.emp); if (!e || s.emp === b.emp || s.fixed || s.sp === sp || s.breakCover) continue;
+        if (e.fifty && sp === PAIRED_SP) continue;
         if (!(s.start <= a && s.end >= z) || (s.start === a && s.end === z)) continue; // working there right then
         if (!empMask(e, sp).slice(a, z).every(Boolean)) continue;
         if ((day.breaks || []).some(x => x.emp === s.emp && x.slot < z + 1 && x.slot + x.len > a - 1)) continue;
@@ -1542,6 +1579,7 @@ function coverBreaks(date, day) {
       }
       for (const s of day.shifts) {
         const e = empById(s.emp); if (!e || s.emp === b.emp || s.fixed) continue;   // fixed-rule shifts stay as they are
+        if (e.fifty && sp === PAIRED_SP) continue;
         if (!empMask(e, sp).slice(a, z).every(Boolean)) continue;                  // must be allowed to work there
         if (day.shifts.some(x => x.emp === s.emp && x !== s && x.start < z && x.end > a)) continue;
         if ((day.breaks || []).some(x => x.emp === s.emp && x.slot < z && x.slot + x.len > a)) continue;
@@ -2343,7 +2381,9 @@ document.addEventListener('click', e => {
       if (!day.working.length) { alert("Tick who's in today first."); return; }
       if (day.shifts.length && !confirm('Replace the current schedule for this day?')) return;
       try { day.shifts = generate(curDate, day); placeBreaks(curDate, day); coverBreaks(curDate, day);
-        for (let i = 0; i < 3 && fillWithBackups(curDate, day, day.shifts, computeCover(day)); i++) { placeBreaks(curDate, day); coverBreaks(curDate, day); } mergePieces(day.shifts); }
+        for (let i = 0; i < 3 && fillWithBackups(curDate, day, day.shifts, computeCover(day)); i++) { placeBreaks(curDate, day); coverBreaks(curDate, day); }
+        if (pairFifties(curDate, day)) { placeBreaks(curDate, day); coverBreaks(curDate, day); pairFifties(curDate, day); }
+        mergePieces(day.shifts); }
       catch (err) { console.error(err); alert('Sorry, the schedule could not be generated: ' + err.message + '\n\nPlease download a backup (Sync & backup) and send it to get this fixed.'); return; }
       break;
     case 'dview': ui.dview = b.dataset.v; try { localStorage.setItem('staffsched.dview', ui.dview); } catch (e) {} render(); return;
