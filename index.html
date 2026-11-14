@@ -492,6 +492,9 @@ function ensureConfig(c) {
     const ps = (lt.thu || {}).periods || [];
     if (!ps.length || (ps.length === 1 && ps[0].close === '02:30')) lt.thu = clone(OPENING_2026.high.laterna.thu);
   }
+  if (!c.strictCloseRule) { c.salesPoints.forEach(sp => { if (sp.id === 'skansagardur') sp.strictClose = true;
+    if (sp.id === 'placeur') sp.lunchPrep = {before: 0, after: sp.midCloseMin !== undefined ? +sp.midCloseMin : +sp.closeMin || 0, staff: 1, max: 1}; });
+    c.strictCloseRule = true; changed = true; }
   if (!c.skansTeamRule) { const sk = c.salesPoints.find(x => x.id === 'skansagardur');
     // headwaiter + 3 waiters at breakfast, 2 at lunch (3 above 75 lunch bookings, never more), headwaiter + 4 at dinner; Placeur on top
     if (sk) { sk.morningPrep = {...(sk.morningPrep || {before: 0, after: 90}), staff: 4}; sk.baseStaff = 5;
@@ -659,6 +662,9 @@ function hardCaps(sp, date, day) {
   const cap = new Array(SLOTS).fill(false), w = lunchWindow(sp, date, day);
   if (w) for (let k = w[0]; k < w[1]; k++) cap[k] = true;
   if (+sp.lateMax > 0) for (let k = toSlot('00:00'); k < SLOTS; k++) cap[k] = true; // nobody extra after midnight
+  if (sp.strictClose) { const hh = spHours(sp, date, day); if (hh.periods.length) { // e.g. buffet: nobody after closing + "stay after closing"
+    const end = Math.min(SLOTS, Math.max(...hh.periods.map(p => endSlot(p.close))) + Math.ceil((+sp.closeMin || 0) / 30));
+    for (let k = end; k < SLOTS; k++) cap[k] = 'prep'; } }
   if (+sp.prepStaff > 0) {
     const h = spHours(sp, date, day), pre = Math.ceil((+sp.prepMin || 0) / 30);
     h.periods.forEach(p => { const o = toSlot(p.open); for (let k = Math.max(0, o - pre); k < o; k++) if (!isOpenAt(h, k)) cap[k] = 'prep'; });
@@ -846,10 +852,12 @@ function placeBreaks(date, day) {
       if (!blocks.some(b => b.start < wE && b.end > wS && b.end - b.start >= minBlock)) return;
       let free = 0, ok = false;
       for (let k = wS; k < wE; k++) { if (at(k)) free = 0; else if (++free >= bl) ok = true; }
+      // cabin work (housekeeping) never gets a meal break in the middle of it
+      if (!ok && ![...Array(wE - wS).keys()].some(i => { const x = at(wS + i); return x && x.sp !== 'hk'; })) return;
       if (ok || !mine.some(s => s.start < wE && s.end > wS)) return; // already free during the meal
       let bestB = null;
       for (let k = wS; k + bl <= wE; k++) {
-        const s = at(k); if (!s) continue;
+        const s = at(k); if (!s || s.sp === 'hk') continue;
         if (!at(k - 1) || !at(k + bl)) continue; // never start or end a shift part with a break
         let fits = true, spare = 0;
         const oh = spHours(spById(s.sp), date, day);
@@ -1093,7 +1101,8 @@ function generate(date, day) {
       const T = targetSlots(e, day), [w0, w1] = signWindow(e, date, day), m = empMask(e, 'skansagardur');
       const fits = (a, b) => a >= w0 && b <= w1 && b <= SLOTS && a >= earliestStart(e, date) && [...Array(b - a).keys()].every(i => m[a + i]);
       if (bw && dw && !(day.signing || []).includes(e.id)) {
-        const b1 = Math.min(bw.b, bw.a + T), a2 = dw.a, b2 = Math.min(SLOTS, a2 + T - (b1 - bw.a));
+        let b1 = Math.min(bw.b, bw.a + T); const a2 = dw.a, b2 = Math.min(dw.b, a2 + T - (b1 - bw.a));
+        b1 = Math.min(a2 - minGapSlots(), b1 + Math.max(0, T - (b1 - bw.a) - (b2 - a2))); // short of 10h: stay on after breakfast
         if (fits(bw.a, b1) && b2 > a2 && fits(a2, b2)) {
           shifts.push({id: uid(), emp: e.id, sp: 'skansagardur', start: bw.a, end: b1, fixed: 'headwaiter', role: 'hw'});
           shifts.push({id: uid(), emp: e.id, sp: 'skansagardur', start: a2, end: b2, fixed: 'headwaiter', role: 'hw'});
@@ -1413,26 +1422,30 @@ function generate(date, day) {
       // ...or (once a day) carry straight on at another place that is short right then: one block, not a split,
       // placed as one piece of the missing hours (e.g. 12-17 Laterna, then 17-22 buffet)
       const left = T - total;
-      if (!switched.has(e.id)) for (const sh of mine) for (const side of ['end', 'start']) {
+      // (over = true: last resort, also where it's already fully staffed — an extra pair of hands, never against a cap)
+      const trySwitch = over => { if (!switched.has(e.id)) for (const sh of mine) for (const side of ['end', 'start']) {
         const d = side === 'end' ? 1 : -1;
         for (const sp2 of sps) {
           if (sp2.id === sh.sp) continue;
           const n = need[sp2.id], c = cover[sp2.id], m = empMask(e, sp2.id);
           let L = 0, g = 0;
           for (let k = side === 'end' ? sh.end : sh.start - 1; L < left; k += d, L++) {
-            if (k < 0 || k >= SLOTS || k < w0 || k >= w1 || !m[k] || hardCap[sp2.id][k] === 'prep' || !(n[k] - c[k] > 0) || mine.some(x => k >= x.start && k < x.end)) break;
+            if (k < 0 || k >= SLOTS || k < w0 || k >= w1 || !m[k] || hardCap[sp2.id][k] === 'prep' || (over ? !(n[k] > 0) || hardCap[sp2.id][k] || (capWin[sp2.id] && capWin[sp2.id][0] === 0 && capWin[sp2.id][1] === SLOTS) : !(n[k] - c[k] > 0)) || mine.some(x => k >= x.start && k < x.end)) break;
             if (side === 'start' && k < earliestStart(e, date)) break;
-            g += slotW(sp2, k, c[k]);
+            g += over ? c[k] - n[k] : slotW(sp2, k, c[k]);
           }
           if (L < Math.min(left, 2)) continue;
           const a = side === 'end' ? sh.end : sh.start - L, b = a + L;
           const iv = [...mine.map(x => [x.start, x.end]), [a, b]].sort((p, q) => p[0] - q[0]);
           const mg = []; iv.forEach(([p, q]) => { const l = mg[mg.length - 1]; if (l && p <= l[1]) l[1] = Math.max(l[1], q); else mg.push([p, q]); });
           if (mg.length > 2 || mg.some((x, i) => i && x[0] - mg[i - 1][1] < minGap)) continue;
-          const sc = 1000 + Math.log(1 + g / L) * 100 + L;
+          const sc = over ? L * 10 - g : 1000 + Math.log(1 + g / L) * 100 + L;
           if (!best || sc > best.sc) best = {sc, sp2: sp2.id, a, b};
         }
       }
+      };
+      trySwitch(false);
+      if (!best) trySwitch(true);
       if (!best) break;
       if (best.sp2) { place(e, best.sp2, best.a, best.b); switched.add(e.id); }
       else { if (best.side === 'end') best.sh.end++; else best.sh.start--; cover[best.sh.sp][best.k]++; }
@@ -1967,6 +1980,7 @@ function renderSetup() {
       <label>Arrive before opening (min) <input type="number" min="0" step="30" value="${sp.prepMin}" data-ch="sp" data-id="${sp.id}" data-f="prepMin"></label>
       <label>Stay after closing (min) <input type="number" min="0" step="30" value="${sp.closeMin}" data-ch="sp" data-id="${sp.id}" data-f="closeMin"></label>
       <label>People before opening (0 = everyone) <input type="number" min="0" value="${sp.prepStaff || 0}" data-ch="sp" data-id="${sp.id}" data-f="prepStaff"></label>
+      <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" ${sp.strictClose ? 'checked' : ''} data-ch="sp-strict" data-id="${sp.id}"> Nobody later than "stay after closing" after the last service</label>
       <label title="After 00:00 never more people than this (the closer works alone)">Max people after 24:00 (0 = no limit) <input type="number" min="0" value="${sp.lateMax || 0}" data-ch="sp" data-id="${sp.id}" data-f="lateMax"></label>
       <label title="When it reopens after midnight (night port call), this many people work one 10h block to the end of the night">Night crew when it reopens after midnight <input type="number" min="0" value="${sp.nightCrew || 0}" data-ch="sp" data-id="${sp.id}" data-f="nightCrew"></label>
       ${sp.hoursFrom ? '' : `<label>Cleaning shift when closed <span class="per"><input type="checkbox" style="width:auto" ${sp.closedClean && sp.closedClean.on ? 'checked' : ''} data-ch="clean" data-id="${sp.id}" data-f="on">
@@ -2390,6 +2404,7 @@ document.addEventListener('change', e => {
   else if (ch === 'prio') { C.rules.prio = {...(C.rules.prio || {}), [f]: Math.max(0, parseInt(el.value) || 0)}; }
   else if (ch === 'rule') { C.rules[f] = Math.max(['minRestH', 'signOffBeforeDepMin', 'maxBeforeOpenMin', 'minBreakBlockH'].includes(f) ? 0 : 0.5, parseFloat(el.value) || 0); }
   else if (ch === 'meal') { C.rules.meals[+el.dataset.i][f] = el.value; }
+  else if (ch === 'sp-strict') { spById(id).strictClose = el.checked; }
   else if (ch === 'sp') { const sp = spById(id); sp[f] = ['name', 'type', 'color'].includes(f) ? el.value : Math.max(0, parseFloat(el.value) || 0); }
   else if (ch === 'emp' && f === 'headAt' && el.value === 'fifty') { const em = empById(id); em.headAt = null; delete em.team; delete em.night; em.fifty = true; }
   else if (ch === 'emp' && f === 'headAt' && el.value.startsWith('night:')) { const em = empById(id), t = el.value.slice(6); em.headAt = null; delete em.team; delete em.fifty; em.night = t;
