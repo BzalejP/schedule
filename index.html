@@ -545,6 +545,9 @@ function ensureConfig(c) {
   }));
   if (c.hoursPreset !== NORRONA_PRESET) { applyNorrona(c); changed = true; }
   if (c.colorPreset !== 'sheet1') { c.salesPoints.forEach(sp => { if (SHEET_COLORS[sp.id]) sp.color = SHEET_COLORS[sp.id]; }); c.colorPreset = 'sheet1'; changed = true; }
+  // Placeur may be added after the steps above: 30 min before breakfast/dinner, from opening at lunch
+  { const pl = c.salesPoints.find(x => x.id === 'placeur');
+    if (pl && !c.placeurTimes) { if (!+pl.prepMin) pl.prepMin = 30; if (!pl.lunchPrep) pl.lunchPrep = {before: 0, after: +pl.closeMin || 0, staff: 1, max: 1}; c.placeurTimes = true; changed = true; } }
   return changed;
 }
 
@@ -1254,6 +1257,42 @@ function generate(date, day) {
       const cands = () => { const all = free().filter(e => empMask(e, r.sp).some(Boolean) && !notMine(e, r) && !(homeOpen(e) && e.headAt !== r.sp))
         .sort((a, b) => (signing.has(a.id) - signing.has(b.id)) || flex(a) - flex(b));
         const non = all.filter(e => !teamBusy(e)); return non.length ? non : all; };
+      // One person for both breakfast and dinner Placeur, when possible: both Placeur parts, and the rest of
+      // their day right next to them (e.g. buffet clean-up after breakfast or after dinner).
+      if (r.window !== 'lunch') {
+        const runs = []; for (let k = 0; k < SLOTS;) { if (!(need[r.sp][k] > 0)) { k++; continue; } let e2 = k; while (e2 < SLOTS && need[r.sp][e2] > 0) e2++; runs.push([k, e2]); k = e2; }
+        const bR = runs.find(([a]) => a < toSlot('11:00')), dR = [...runs].reverse().find(([a]) => a >= toSlot('15:00'));
+        if (bR && dR) {
+          let pick = null;
+          for (const e of cands()) {
+            if (oneBlock(e)) continue;
+            const T = targetSlots(e, day), [w0, w1] = signWindow(e, date, day), mp = empMask(e, r.sp), R0 = T - (bR[1] - bR[0]) - (dR[1] - dR[0]);
+            if (R0 < 0 || bR[0] < w0 || dR[1] > w1 || bR[0] < earliestStart(e, date)) continue;
+            if (![...Array(bR[1] - bR[0]).keys()].every(i => mp[bR[0] + i]) || ![...Array(dR[1] - dR[0]).keys()].every(i => mp[dR[0] + i])) continue;
+            // an adjacent piece of length L at another place, from slot a; value = how much it's needed (-1 = impossible)
+            const piece = (a, L) => { if (!L) return {v: 0}; let best = null;
+              for (const x of sps) { if (x.id === r.sp) continue; const m = empMask(e, x.id), hc = hardCap[x.id], cw = capWin[x.id]; let v = 0, ok = true;
+                for (let k = a; k < a + L; k++) { if (k < w0 || k >= w1 || k < 0 || k >= SLOTS || !m[k] || !(need[x.id][k] > 0) || hc[k] === 'prep' || ((hc[k] || (cw && k >= cw[0] && k < cw[1])) && need[x.id][k] - cover[x.id][k] <= 0)) { ok = false; break; }
+                  v += need[x.id][k] - cover[x.id][k] > 0 ? slotW(x, k, cover[x.id][k]) : 0; }
+                if (ok && (!best || v > best.v)) best = {v, sp: x.id, a, L}; }
+              return best || {v: -1}; };
+            for (let r1 = 0; r1 <= R0; r1++) {
+              const r2 = R0 - r1;
+              const p1 = piece(bR[1], r1); if (p1.v < 0) continue;
+              for (const after of [true, false]) {
+                const p2 = piece(after ? dR[1] : dR[0] - r2, r2); if (p2.v < 0) continue;
+                const s2 = after ? dR[0] : dR[0] - r2; if (s2 - (bR[1] + r1) < minGapSlots()) continue;
+                const v = p1.v + p2.v;
+                if (!pick || v > pick.v) pick = {e, v, p1, p2};
+              }
+            }
+          }
+          if (pick) {
+            place(pick.e, r.sp, bR[0], bR[1], 'placeur'); if (pick.p1.L) place(pick.e, pick.p1.sp, pick.p1.a, pick.p1.a + pick.p1.L, 'placeur');
+            place(pick.e, r.sp, dR[0], dR[1], 'placeur'); if (pick.p2.L) place(pick.e, pick.p2.sp, pick.p2.a, pick.p2.a + pick.p2.L, 'placeur');
+          }
+        }
+      }
       for (let g = 0; g < 6 && shortNow(); g++) {
         let best = null;
         for (const e of cands()) {
