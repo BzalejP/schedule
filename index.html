@@ -375,7 +375,7 @@ const DEFAULT_PAX = {
 const DEFAULT_DOCK_RULE = {sp: 'laterna', beforeArrMin: 60, afterDepMin: 120, people: 2, minPax: 500};
 function ruleText(r) {
   const n = esc((spById(r.sp) || {}).name || r.sp), wk = r.keepWeek ? ' Same person for at least a week in a row.' : '';
-  const ov = r.startAt ? Object.entries(r.startAt).map(([d, t]) => ` On ${WDL[WD.indexOf(d)]}s it starts at ${t} (extra cleaning).`).join('') : '';
+  const ov = r.startAt ? Object.entries(r.startAt).map(([d, t]) => ` On ${WDL[WD.indexOf(d)]}s it starts at ${t} (extra cleaning) when it opens later than that.`).join('') : '';
   if (r.type === 'opener') return `${n} opening shift (${r.who === 'headwaiter' ? 'the headwaiter' : 'someone with an ' + n + ' position'}): ${r.hours} hours in a row, starting ${r.beforeMin / 60} hour${r.beforeMin === 60 ? '' : 's'} before opening.${ov}${wk}`;
   if (r.type === 'closer') return `${n} closing shift: one person, ${r.hours} hours in a row, finishing at ${r.end}. Nobody else is added during it unless extra staff is needed.${wk}`;
   if (r.type === 'cover' && r.window === 'lunch') { const sk = spById(r.sp), lp = (sk && sk.lunchPrep) || {}; return `${n} lunch (when open): exactly ${lp.staff} people, never more than ${lp.max}, from ${lp.before ? lp.before + ' min before opening' : 'opening'} until ${(lp.after || 0) / 60}h after closing. Filled before the rest of the day; the lunch crew can go on to buffet dinner.`; }
@@ -1139,8 +1139,11 @@ function generate(date, day) {
       return;
     }
     if (r.type === 'opener') {
-      const fixedStart = r.startAt && r.startAt[WD[wdIndex(date)]];
-      const open = firstOpenSlot(h), start = fixedStart ? toSlot(fixedStart) : Math.max(0, open - Math.round(r.beforeMin / 30));
+      // a day-specific start (Laterna Thursday 12:00, extra cleaning) only when the place opens later than that;
+      // when it opens earlier (high season 08:00) the opener simply comes in before opening as usual
+      const open = firstOpenSlot(h), normalStart = Math.max(0, open - Math.round(r.beforeMin / 30));
+      const fixedStart = r.startAt && r.startAt[WD[wdIndex(date)]] && toSlot(r.startAt[WD[wdIndex(date)]]) < normalStart ? r.startAt[WD[wdIndex(date)]] : null;
+      const start = fixedStart ? toSlot(fixedStart) : Math.max(0, open - Math.round(r.beforeMin / 30));
       if (!fixedStart && open - Math.round(r.beforeMin / 30) < 0) notes.push(`${sp.name} opening shift would start before 05:00; it starts at 05:00 instead.`);
       // evening opening: the closing shift covers the night alone, no separate opening shift
       const cr = closerOf(r.sp);
