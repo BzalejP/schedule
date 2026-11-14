@@ -170,18 +170,46 @@ dialog .row label{flex:1}
 .gcov{margin-top:10px}.gcov summary{cursor:pointer;font-size:13px;color:var(--muted)}
 .gcov .sgrid{margin-top:6px}
 #printArea{display:none}
+.paxrow label.ptext{display:grid;grid-template-columns:1fr;gap:3px;align-items:start;margin-top:10px;font-size:13px;font-weight:600}
+.paxrow label.ptext .muted{display:inline;margin:0 0 0 4px;font-weight:400}
+.paxrow .ptext input,.paxrow .ptext textarea{width:100%;box-sizing:border-box;font:inherit;font-size:14px;font-weight:400;color:var(--ink)}
+.sgrid th.sign-off{color:#c00000}.sgrid th.sign-on{color:#00a040}
+.sgrid col.c-sig{width:90px}.sgrid th.sig{font-size:11px;line-height:1.1;background:#fff}
+.ph,.poh,.pbk{border-collapse:collapse;font-size:11px;color:#000}
+.ph{width:100%;margin-bottom:3px;table-layout:fixed}
+.ph th{background:#d9d9d9;border:1px solid #777;padding:1px 4px;font-size:12px}
+.ph td{border:1px solid #777;padding:1px 4px;text-align:center;font-size:11px}
+.ph td.big{font-weight:700;font-size:13px}
+.ph td.ph-warn{color:#c00000;font-weight:700;font-size:13px;width:38%;border:none}
+.ph small{font-size:9px;margin-left:4px}
+.pb{display:flex;gap:6px;margin-top:4px;align-items:flex-start;color:#000}
+.poh th,.poh td,.pbk th,.pbk td{border:1px solid #777;padding:1px 5px;height:16px}
+.poh th,.pbk th{background:#bdd7ee;text-align:center}
+.poh tr th:first-child{text-align:left;min-width:110px}
+.poh td{text-align:center;font-weight:700}.poh td.closed{font-weight:400;color:#777}
+.pbk td.sw{width:10px;padding:0}.pbk td.n{text-align:right;min-width:30px;font-weight:700}
+.poh{width:38%}.pbk{width:20%}
+.pobs{flex:1;display:flex;flex-direction:column;border:1px solid #777;font-size:11px;min-height:120px}
+.pobs-h{background:#bdd7ee;text-align:center;font-weight:700;border-bottom:1px solid #777}
+.pobs-b{flex:1;padding:3px 6px}
+.pph{border-collapse:collapse;width:9%;font-size:10.5px}
+.pph th,.pph td{border:1px solid #777;text-align:center;padding:0 3px;height:13px;line-height:1.15;font-style:italic;font-weight:700}
+.pph th{font-size:10.5px}.pph td{font-style:normal}
+.pnote{text-align:center;color:#c00000;font-weight:700;padding:2px;border-top:1px solid #777}.pnote.y{background:#ffc000}
+.ph th,.poh th,.pbk td.sw,.pnote,.pobs-h{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 @media print{
-  @page{size:landscape;margin:10mm}
+  @page{size:A4 landscape;margin:6mm}
   body{background:#fff;color:#000}
   body>*:not(#printArea){display:none!important}
   #printArea{display:block}
   #printArea pre{font-size:13px}
   #printArea .gwrap{border:none;padding:0;overflow:visible}
   #printArea .sgrid{width:100%}
-  #printArea .sgrid col.c-name{width:9%}#printArea .sgrid col.c-slot{width:1.7%}#printArea .sgrid col.c-num{width:4.6%}
-  #printArea .sgrid td.num{font-size:11px}
-  #printArea .sgrid td,#printArea .sgrid th{height:18px}
-  #printArea .sgrid thead th.slot{height:70px}#printArea .sgrid thead th.slot span{font-size:8px}
+  #printArea .sgrid col.c-name{width:8%}#printArea .sgrid col.c-slot{width:1.6%}#printArea .sgrid col.c-num{width:4%}#printArea .sgrid col.c-sig{width:7.2%}
+  #printArea .sgrid td.num{font-size:10px}
+  #printArea .sgrid td,#printArea .sgrid th{height:15px;font-size:10.5px}
+  #printArea .sgrid thead th.slot{height:62px}#printArea .sgrid thead th.slot span{font-size:7.5px}
+  #printArea .glegend{margin-top:3px;font-size:10px}
   .sgrid td,.sgrid th,.glegend i{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .tl-wrap{border:none;overflow:visible}
   .tl-bar{-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -620,6 +648,12 @@ function hardCaps(sp, date, day) {
 // and closing shifts are fixed rules; the numbers here set the minimum staff that each later step secures.
 const PRIO_DEFAULT = {munkSecond: 2, noatunClose: 2, buffetBreakfast: 3, buffetLunch: 3, buffetDinner: 4, noatunBreakfast: 2, noatunLunch: 1, noatunDinner: 3, munkThird: 3};
 const PRIO = () => ({...PRIO_DEFAULT, ...(R().prio || {})});
+const PHONES_DEFAULT = [
+  {label: 'MANAGER', number: '4836', color: '#000000'}, {label: 'SUPERVISOR', number: '4995', color: '#000000'},
+  {label: 'BUFFET DOOR', number: '4993', color: '#2f75b5'}, {label: 'BUFFET DISP.', number: '4890', color: '#2f75b5'},
+  {label: 'MUNKASTOVA', number: '4850', color: '#7030a0'}, {label: 'NOATUN DISP', number: '4840', color: '#c55a11'},
+  {label: 'BAR DISP', number: '4996', color: '#00b050'}];
+const PHONES = () => R().phones || PHONES_DEFAULT;
 // The window each service of a sales point is staffed (from "arrive before" to "stay after"), by service.
 function serviceWindows(sp, date, day) {
   const h = spHours(sp, date, day), out = [];
@@ -1605,7 +1639,8 @@ function renderDay() {
 
   const bookSps = sps.filter(sp => (sp.bookingTypes || []).length);
   const paxBox = `<div class="paxrow"><label>Total passengers <input type="number" min="0" inputmode="numeric" placeholder="0" value="${day.pax || ''}" data-ch="pax"></label>
-    <div class="muted" id="pax-hint">Minimum staff morning/day/night: ${paxSummary(day)}</div></div>`;
+    <div class="muted" id="pax-hint">Minimum staff morning/day/night: ${paxSummary(day)}</div>
+    <label class="ptext"><span>CHD / YTH<span class="muted">for the printout</span></span><input type="text" value="${esc(day.chd || '')}" placeholder="e.g. 3+1/3" data-ch="daytext" data-f="chd"></label></div>`;
   const res = `<div class="card"><h3>Reservations</h3>${paxBox}${bookSps.map(sp => {
     const bk = day.bookings[sp.id] || {}, h = spHours(sp, curDate, day);
     const total = sp.bookingTypes.reduce((a, t) => a + (+bk[t.key] || 0), 0);
@@ -1690,15 +1725,16 @@ function gridHTML(day, need, cover, forPrint) {
   const people = emps.filter(e => working.has(e.id) || onSchedule.has(e.id));
   if (!people.length) return `<div class="tl-wrap"><div class="empty">Tick who's in today, then press Generate schedule.</div></div>`;
   const brk = new Map(); (day.breaks || []).forEach(b => { for (let k = b.slot; k < b.slot + b.len; k++) brk.set(b.emp + ':' + k, b); });
-  let h = `<div class="gwrap"><table class="sgrid${forPrint ? ' print' : ''}${ui.brush && !forPrint ? ' painting' : ''}"><colgroup><col class="c-name">${'<col class="c-slot">'.repeat(SLOTS)}<col class="c-num"><col class="c-num"></colgroup>
+  let h = `<div class="gwrap"><table class="sgrid${forPrint ? ' print' : ''}${ui.brush && !forPrint ? ' painting' : ''}"><colgroup><col class="c-name">${'<col class="c-slot">'.repeat(SLOTS)}<col class="c-num"><col class="c-num">${forPrint ? '<col class="c-sig">' : ''}</colgroup>
     <thead><tr><th class="corner"></th>`;
   for (let k = 0; k < SLOTS; k++) h += `<th class="slot${slotTime(k).endsWith(':00') ? ' hr' : ''}"><span>${slotTime(k)} - ${slotTime(k + 1) === '00:00' ? '24:00' : slotTime(k + 1)}</span></th>`;
-  h += `<th class="num">HOURS</th><th class="num rest">Rest hours</th></tr></thead><tbody>`;
+  h += `<th class="num">HOURS</th><th class="num rest">Rest hours</th>${forPrint ? '<th class="sig">Signature Supervisor</th>' : ''}</tr></thead><tbody>`;
   people.forEach(e => {
     const mine = day.shifts.filter(s => s.emp === e.id);
     const total = workBlocks(day, e.id).reduce((a, b) => a + b.end - b.start, 0) / 2;
     const want = targetSlots(e, day) / 2;
-    h += `<tr><th class="name">${esc(e.name)}${e.headAt ? ' <span class="star">★</span>' : ''}${isBackup(e) ? ` <span class="tag mgr">${e.manager ? 'mgr' : 'sup'}</span>` : ''}${(day.signing || []).includes(e.id) ? ` <span class="tag">${(day.signDir || {})[e.id] === 'on' ? 'sign on' : 'sign off'}</span>` : ''}</th>`;
+    const sg = (day.signing || []).includes(e.id) ? ((day.signDir || {})[e.id] === 'on' ? ' sign-on' : ' sign-off') : '';
+    h += `<tr><th class="name${forPrint ? sg : ''}">${esc(e.name)}${e.headAt && !forPrint ? ' <span class="star">★</span>' : ''}${isBackup(e) ? ` <span class="tag mgr">${e.manager ? 'mgr' : 'sup'}</span>` : ''}${(day.signing || []).includes(e.id) && !forPrint ? ` <span class="tag">${(day.signDir || {})[e.id] === 'on' ? 'sign on' : 'sign off'}</span>` : ''}</th>`;
     for (let k = 0; k < SLOTS; k++) {
       const s = mine.find(x => k >= x.start && k < x.end), b = brk.get(e.id + ':' + k), sp = s && spById(s.sp);
       const bg = b ? BREAK_COLOR : sp ? sp.color : '';
@@ -1706,7 +1742,7 @@ function gridHTML(day, need, cover, forPrint) {
       h += `<td class="${slotTime(k).endsWith(':00') ? 'hr' : ''}"${bg ? ` style="background:${bg}"` : ''}${forPrint ? '' : ` data-act="cell" data-emp="${e.id}" data-k="${k}" title="${esc(tip)}"`}></td>`;
     }
     const ok = total === want && total > 0;
-    h += `<td class="num ${total ? (ok ? 'ok' : 'off') : ''}">${total ? total.toFixed(2).replace('.', ',') : ''}</td><td class="num rest">${total ? (24 - total).toFixed(2).replace('.', ',') : ''}</td></tr>`;
+    h += `<td class="num ${total ? (ok ? 'ok' : 'off') : ''}">${total ? total.toFixed(2).replace('.', ',') : ''}</td><td class="num rest">${total ? (24 - total).toFixed(2).replace('.', ',') : ''}</td>${forPrint ? '<td class="sig"></td>' : ''}</tr>`;
   });
   h += `</tbody></table>`;
   // legend, like the bottom row of the paper schedule
@@ -1729,6 +1765,38 @@ function gridHTML(day, need, cover, forPrint) {
     h += `</tbody></table><p class="help" style="margin:6px 0 0">Numbers = staff on; red = short by that many.</p></details>`;
   }
   return h + `</div>`;
+}
+
+// The printout, laid out like the paper schedule: header strip (pax, day, date, port, times), the grid,
+// the colour legend, then opening hours, prebooked numbers and notes.
+function printHTML(date, day) {
+  const sps = cfg().salesPoints, need = computeNeed(date, day, false), cover = computeCover(day, date);
+  const dot = t => t ? t.replace(':', '.') : '';
+  const pc = portFor(date, day), calls = (pc.calls || []).filter(c => c[1] || c[2]);
+  const port = calls.length ? calls.map(c => esc(c[0] || '')).join(' / ') : esc(pc.label || 'At sea');
+  const times = calls.map(c => `${dot(c[1]) || '…'}-${dot(c[2]) || '…'}`).join(' / ');
+  const d = new Date(date + 'T12:00:00');
+  const dateTxt = `${String(d.getDate()).padStart(2, '0')}/${d.toLocaleDateString('en-GB', {month: 'short'})}`;
+  const txt = c => { const m = (c || '#fff').match(/^#?([0-9a-f]{6})$/i); if (!m) return '#000'; const n = parseInt(m[1], 16);
+    return ((n >> 16) * 299 + ((n >> 8) & 255) * 587 + (n & 255) * 114) / 1000 < 140 ? '#fff' : '#000'; };
+  const head = `<table class="ph"><tr><th>PAX:</th><th>CHD / YTH</th><th>DAY</th><th>DATE</th><th>PORT</th><th>TIME</th><td rowspan="2" class="ph-warn">All overtime must be approved by Supervisor or Manager</td></tr>
+    <tr><td class="big">${day.pax ? day.pax : ''}</td><td>${esc(day.chd || '')}</td><td>${WDL[wdIndex(date)]}</td><td>${dateTxt}</td><td>${port}</td><td>${times}${times ? ' <small>SHIPTIME</small>' : ''}</td></tr></table>`;
+  // opening hours (Placeur follows the buffet, so it isn't listed on its own)
+  const maxP = Math.max(1, ...sps.filter(sp => !sp.hoursFrom).map(sp => spHours(sp, date, day).periods.length));
+  const ohRows = sps.filter(sp => !sp.hoursFrom).map(sp => { const per = spHours(sp, date, day).periods;
+    return `<tr><th style="background:${sp.color};color:${txt(sp.color)}">${esc(sp.name)}</th>${per.length ? per.map(p => `<td>${dot(p.open)}</td><td>-</td><td>${dot(p.close)}</td>`).join('') : '<td colspan="3" class="closed">Closed</td>'}${'<td></td><td></td><td></td>'.repeat(Math.max(0, maxP - Math.max(1, per.length)))}</tr>`; }).join('');
+  // prebooked numbers
+  const bkRows = sps.filter(sp => (sp.bookingTypes || []).length).map(sp => sp.bookingTypes.map((t, i) => {
+    const n = +((day.bookings[sp.id] || {})[t.key]) || 0;
+    return `<tr><td class="sw" style="background:${sp.color}"></td><td>${esc(t.label)}:</td><td class="n">${n || ''}</td></tr>`; }).join('')).join('');
+  // phone numbers, right edge (Setup → Phone numbers on the printout)
+  const phones = `<table class="pph">${PHONES().map(x => `<tr><th style="color:${x.color || '#000'}">${esc(x.label)}</th></tr><tr><td style="color:${x.color || '#000'}">${esc(x.number)}</td></tr>`).join('')}</table>`;
+  const bottom = `<div class="pb">
+    <table class="poh"><tr><th>Profitcenter</th><th colspan="${maxP * 3}">Opening Hours</th></tr>${ohRows}</table>
+    <table class="pbk"><tr><th colspan="3">Prebooked</th></tr>${bkRows}</table>
+    <div class="pobs"><div class="pobs-h">Obs</div><div class="pobs-b"></div>
+      <div class="pnote y">REMEMBER TO SEASECURE EVERYDAY</div><div class="pnote">REMEMBER CLOSING DOWN LISTS &amp; REST HOURS - EVERY DAY !!!!</div></div>${phones}</div>`;
+  return head + gridHTML(day, need, cover, true) + bottom;
 }
 
 function timelineHTML(day, need, cover) {
@@ -1901,6 +1969,13 @@ function renderSetup() {
         ${(sk => sk ? `<li>Skansagardur: ${(sk.morningPrep || {}).staff || sk.baseStaff} at breakfast (meet at opening, stay ${((sk.morningPrep || {}).after || 0) / 60}h after closing), ${sk.baseStaff} at dinner (meet ${sk.prepMin} min before opening, stay ${sk.closeMin / 60}h after closing). Change on the Skansagardur card.</li>` : '')(spById('skansagardur'))}
         <li>Every crew member working through a crew meal time (${(R().meals || []).map(m => m.from + '–' + m.to).join(' and ')}) gets a ${R().mealBreakMin}-minute break inside it, whatever their shift length.</li></ul>
       <p class="help" style="margin:8px 0 0">"Same person" rules look back at the previous days' schedules, so generate days in date order.</p>
+    </div>
+    <div class="card"><h3>Phone numbers on the printout</h3>
+      <table style="max-width:520px">${PHONES().map((x, i) => `<tr><td><input type="text" value="${esc(x.label)}" data-ch="phone" data-i="${i}" data-f="label" style="width:170px"></td>
+        <td><input type="text" value="${esc(x.number)}" data-ch="phone" data-i="${i}" data-f="number" style="width:80px"></td>
+        <td><input type="color" value="${x.color || '#000000'}" data-ch="phone" data-i="${i}" data-f="color"></td>
+        <td><button class="x" data-act="phone-del" data-i="${i}" title="Remove">✕</button></td></tr>`).join('')}</table>
+      <button data-act="phone-add" style="margin-top:6px">Add a number</button>
     </div>
     <div class="card"><h3>Priority order <span class="muted">who gets staffed first when there aren't enough people</span></h3>
       ${(P => `<ol style="margin:0;padding-left:20px;line-height:2">
@@ -2135,7 +2210,7 @@ document.addEventListener('click', e => {
       return;
     }
     case 'print':
-      $('#printArea').innerHTML = `<h2 style="margin:0 0 6px;font-size:16px">Work schedule – ${esc(fmtDate(curDate))}</h2>${gridHTML(day, computeNeed(curDate, day, false), computeCover(day), true)}`;
+      $('#printArea').innerHTML = printHTML(curDate, day);
       window.print(); return;
     // setup
     case 'sp-add': {
@@ -2160,6 +2235,8 @@ document.addEventListener('click', e => {
       if (se && C.seasons[se]) { const sh = (C.seasons[se].hours[sp.id] ||= {}); WD.forEach(d => sh[d] = clone(normHours(sh.mon))); }
       else WD.forEach(d => sp.hours[d] = clone(normHours(sp.hours.mon)));
       saveConfig(); render(); return; }
+    case 'phone-add': C.rules.phones = [...PHONES().map(x => ({...x})), {label: '', number: '', color: '#000000'}]; saveConfig(); render(); return;
+    case 'phone-del': C.rules.phones = PHONES().filter((x, i) => i !== +b.dataset.i); saveConfig(); render(); return;
     case 'emp-add': {
       const name = $('#newEmp').value.trim(); if (!name) return;
       C.employees.push({id: uid(), name, headAt: null, allowed: C.positions.map(p => p.key)});
@@ -2195,7 +2272,7 @@ document.addEventListener('change', e => {
   if (ch === 'tfd') { const t = C.fixedRules.find(r => r.type === 'team'); t.fixedDays[+el.dataset.i][f] = el.value; saveConfig(); scheduleRender(); return; }
   if (ch === 'srange') { const r = C.seasonRanges[+el.dataset.i]; r[f] = el.value; C.seasonRanges.sort((a, b) => (a.from || '').localeCompare(b.from || '')); saveConfig(); scheduleRender(); return; }
   if (ch === 'paxr') { const r = spById(id).paxRules[+el.dataset.i]; r[f] = Math.max(0, parseInt(el.value, 10) || 0); saveConfig(); scheduleRender(); return; }
-  if (ch === 'pax') return; // saved on input
+  if (ch === 'pax' || ch === 'daytext') return; // saved on input
   if (ch === 'port') { const day = getDay(curDate), pc = portFor(curDate, day); day.port = {arr: pc.arr, dep: pc.dep, [f]: el.value || null}; saveDay(curDate); scheduleRender(); return; }
   if (ch === 'portw') { C.port[el.dataset.d] = {...(C.port[el.dataset.d] || {}), [f]: el.value || null}; saveConfig(); scheduleRender(); return; }
   if (ch === 'dock') { C.dockRule[f] = Math.max(0, parseFloat(el.value) || 0); saveConfig(); scheduleRender(); return; }
@@ -2208,6 +2285,7 @@ document.addEventListener('change', e => {
     const t = spById(id).bookingTypes[+el.dataset.i];
     t[f] = f === 'perStaff' ? Math.max(0, parseInt(el.value, 10) || 0) : (f === 'label' ? (el.value.trim() || t.label) : el.value);
   }
+  else if (ch === 'phone') { C.rules.phones = PHONES().map(x => ({...x})); C.rules.phones[+el.dataset.i][f] = el.value; }
   else if (ch === 'prio') { C.rules.prio = {...(C.rules.prio || {}), [f]: Math.max(0, parseInt(el.value) || 0)}; }
   else if (ch === 'rule') { C.rules[f] = Math.max(['minRestH', 'signOffBeforeDepMin', 'maxBeforeOpenMin', 'minBreakBlockH'].includes(f) ? 0 : 0.5, parseFloat(el.value) || 0); }
   else if (ch === 'meal') { C.rules.meals[+el.dataset.i][f] = el.value; }
@@ -2226,6 +2304,7 @@ document.addEventListener('change', e => {
 
 document.addEventListener('input', e => {
   const el = e.target;
+  if (el.dataset.ch === 'daytext') { const day = getDay(curDate); day[el.dataset.f] = el.value; saveDay(curDate); return; }
   if (el.dataset.ch === 'pax') {
     const day = getDay(curDate); day.pax = Math.max(0, parseInt(el.value, 10) || 0); saveDay(curDate);
     const hint = $('#pax-hint'); if (hint) hint.innerHTML = 'Minimum staff morning/day/night: ' + paxSummary(day);
