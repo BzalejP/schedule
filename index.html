@@ -1784,7 +1784,7 @@ function printHTML(date, day) {
   // opening hours (Placeur follows the buffet, so it isn't listed on its own)
   const maxP = Math.max(1, ...sps.filter(sp => !sp.hoursFrom).map(sp => spHours(sp, date, day).periods.length));
   // Noatun's meals under its opening hours (times from Setup → Noatun → booking types), only when open then
-  const mealRows = (sp, per) => (sp.bookingTypes || []).filter(t => t.from && t.to && per.some(p => toSlot(t.from) < endSlot(p.close) && endSlot(t.to) > toSlot(p.open)))
+  const mealRows = (sp, per) => (sp.bookingTypes || []).filter(t => t.key !== 'driver' && t.from && t.to && per.some(p => toSlot(t.from) < endSlot(p.close) && endSlot(t.to) > toSlot(p.open)))
     .map(t => `<tr class="meal"><th style="background:${sp.color};color:${txt(sp.color)}">${esc(t.label)}</th><td>${dot(t.from)}</td><td>-</td><td>${dot(t.to)}</td>${'<td></td><td></td><td></td>'.repeat(maxP - 1)}</tr>`).join('');
   const ohRows = sps.filter(sp => !sp.hoursFrom).map(sp => { const per = spHours(sp, date, day).periods;
     return `<tr><th style="background:${sp.color};color:${txt(sp.color)}">${esc(sp.name)}</th>${per.length ? per.map(p => `<td>${dot(p.open)}</td><td>-</td><td>${dot(p.close)}</td>`).join('') : '<td colspan="3" class="closed">Closed</td>'}${'<td></td><td></td><td></td>'.repeat(Math.max(0, maxP - Math.max(1, per.length)))}</tr>${sp.id === 'noatun' ? mealRows(sp, per) : ''}`; }).join('');
