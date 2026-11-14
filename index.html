@@ -186,7 +186,7 @@ dialog .row label{flex:1}
 .poh th,.poh td,.pbk th,.pbk td{border:1px solid #777;padding:1px 5px;height:16px}
 .poh th,.pbk th{background:#bdd7ee;text-align:center}
 .poh tr th:first-child{text-align:left;min-width:110px}
-.poh td{text-align:center;font-weight:700}.poh td.closed{font-weight:400;color:#777}
+.poh td{text-align:center;font-weight:700}.poh tr.meal th{padding-left:16px;font-weight:600}.poh tr.meal td{font-weight:400}.poh td.closed{font-weight:400;color:#777}
 .pbk td.sw{width:10px;padding:0}.pbk td.n{text-align:right;min-width:30px;font-weight:700}
 .poh{width:38%}.pbk{width:20%}
 .pobs{flex:1;display:flex;flex-direction:column;border:1px solid #777;font-size:11px;min-height:120px}
@@ -1783,8 +1783,11 @@ function printHTML(date, day) {
     <tr><td class="big">${day.pax ? day.pax : ''}</td><td>${esc(day.chd || '')}</td><td>${WDL[wdIndex(date)]}</td><td>${dateTxt}</td><td>${port}</td><td>${times}${times ? ' <small>SHIPTIME</small>' : ''}</td></tr></table>`;
   // opening hours (Placeur follows the buffet, so it isn't listed on its own)
   const maxP = Math.max(1, ...sps.filter(sp => !sp.hoursFrom).map(sp => spHours(sp, date, day).periods.length));
+  // Noatun's meals under its opening hours (times from Setup → Noatun → booking types), only when open then
+  const mealRows = (sp, per) => (sp.bookingTypes || []).filter(t => t.from && t.to && per.some(p => toSlot(t.from) < endSlot(p.close) && endSlot(t.to) > toSlot(p.open)))
+    .map(t => `<tr class="meal"><th style="background:${sp.color};color:${txt(sp.color)}">${esc(t.label)}</th><td>${dot(t.from)}</td><td>-</td><td>${dot(t.to)}</td>${'<td></td><td></td><td></td>'.repeat(maxP - 1)}</tr>`).join('');
   const ohRows = sps.filter(sp => !sp.hoursFrom).map(sp => { const per = spHours(sp, date, day).periods;
-    return `<tr><th style="background:${sp.color};color:${txt(sp.color)}">${esc(sp.name)}</th>${per.length ? per.map(p => `<td>${dot(p.open)}</td><td>-</td><td>${dot(p.close)}</td>`).join('') : '<td colspan="3" class="closed">Closed</td>'}${'<td></td><td></td><td></td>'.repeat(Math.max(0, maxP - Math.max(1, per.length)))}</tr>`; }).join('');
+    return `<tr><th style="background:${sp.color};color:${txt(sp.color)}">${esc(sp.name)}</th>${per.length ? per.map(p => `<td>${dot(p.open)}</td><td>-</td><td>${dot(p.close)}</td>`).join('') : '<td colspan="3" class="closed">Closed</td>'}${'<td></td><td></td><td></td>'.repeat(Math.max(0, maxP - Math.max(1, per.length)))}</tr>${sp.id === 'noatun' ? mealRows(sp, per) : ''}`; }).join('');
   // prebooked numbers
   const bkRows = sps.filter(sp => (sp.bookingTypes || []).length).map(sp => sp.bookingTypes.map((t, i) => {
     const n = +((day.bookings[sp.id] || {})[t.key]) || 0;
