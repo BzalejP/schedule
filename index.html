@@ -191,7 +191,8 @@ dialog .row label{flex:1}
 .poh{width:38%}.pbk{width:20%}
 .pobs{flex:1;display:flex;flex-direction:column;border:1px solid #777;font-size:11px;min-height:120px}
 .pobs-h{background:#bdd7ee;text-align:center;font-weight:700;border-bottom:1px solid #777}
-.pobs-b{flex:1;padding:3px 6px}
+.pobs-b{flex:1;padding:3px 6px;font-size:12px;line-height:1.35;white-space:normal;word-break:break-word}
+#obsDlg{width:min(460px,92vw)}#obsDlg textarea{width:100%;box-sizing:border-box;font:inherit;font-size:14px;color:var(--ink);resize:vertical}
 .warnc{color:#c55a11;font-weight:600}
 .pph{border-collapse:collapse;width:9%;font-size:10.5px}
 .pph th,.pph td{border:1px solid #777;text-align:center;padding:0 3px;height:13px;line-height:1.15;font-style:italic;font-weight:700}
@@ -234,6 +235,15 @@ dialog .row label{flex:1}
   <section id="view-sync" hidden></section>
 </main>
 
+<dialog id="obsDlg">
+  <h3>Print – remarks</h3>
+  <label>Remarks for the OBS box <span class="muted" style="font-weight:400">(optional, saved with this day)</span>
+    <textarea id="obsText" rows="6" placeholder="e.g. Table booking 16&#10;Group of 40 at 18:30 in Skansagardur"></textarea></label>
+  <div class="row" style="justify-content:flex-end;gap:8px">
+    <button data-act="obs-cancel">Cancel</button>
+    <button class="primary" data-act="obs-print">Print</button>
+  </div>
+</dialog>
 <dialog id="dlg">
   <form id="dlgForm">
     <h3 id="dlgTitle">Shift</h3>
@@ -1971,7 +1981,7 @@ function printHTML(date, day) {
   const bottom = `<div class="pb">
     <table class="poh"><tr><th>Profitcenter</th><th colspan="${maxP * 3}">Opening Hours</th></tr>${ohRows}</table>
     <table class="pbk"><tr><th colspan="3">Prebooked</th></tr>${bkRows}</table>
-    <div class="pobs"><div class="pobs-h">Obs</div><div class="pobs-b"></div>
+    <div class="pobs"><div class="pobs-h">Obs</div><div class="pobs-b">${esc(day.obs || '').replace(/\n/g, '<br>')}</div>
       <div class="pnote y">REMEMBER TO SEASECURE EVERYDAY</div><div class="pnote">REMEMBER CLOSING DOWN LISTS &amp; REST HOURS - EVERY DAY !!!!</div></div>${phones}</div>`;
   return head + gridHTML(day, need, cover, true) + bottom;
 }
@@ -2401,9 +2411,14 @@ document.addEventListener('click', e => {
       (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => { b.textContent = 'Copied ✓'; setTimeout(() => b.textContent = 'Copy as text', 1500); }, () => prompt('Copy the schedule:', t));
       return;
     }
-    case 'print':
+    case 'print': {
+      const d = $('#obsDlg'); $('#obsText').value = day.obs || ''; d.showModal(); setTimeout(() => $('#obsText').focus(), 0); return; }
+    case 'obs-cancel': $('#obsDlg').close(); return;
+    case 'obs-print':
+      day.obs = $('#obsText').value.replace(/\s+$/, ''); saveDay(curDate);
+      $('#obsDlg').close();
       $('#printArea').innerHTML = printHTML(curDate, day);
-      window.print(); return;
+      setTimeout(() => window.print(), 50); return;
     // setup
     case 'sp-add': {
       const name = $('#newSp').value.trim(); if (!name) return;
