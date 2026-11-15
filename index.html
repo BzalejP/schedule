@@ -27,6 +27,9 @@ nav button.active{background:var(--chip);border-color:var(--line);font-weight:60
 .badge{margin-left:auto;font-size:12px;padding:3px 9px;border-radius:99px;background:var(--chip);color:var(--muted)}
 .badge.online{background:var(--ok-bg);color:inherit}
 .badge.error,.badge.signin{background:var(--warn-bg);color:var(--warn)}
+#shareBanner{margin:10px auto 0;max-width:1100px;padding:10px 14px;border-radius:10px;background:#fff4d6;color:#5c4400;border:1px solid #f0d58c;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:14px}
+#shareBanner[hidden]{display:none}#shareBanner .sp{flex:1;min-width:220px}
+.sharelink{display:flex;gap:6px;margin:6px 0}.sharelink input{flex:1;font-size:13px}
 main{padding:16px;max-width:1500px;margin:0 auto}
 .muted{color:var(--muted);font-weight:400}
 .spacer{flex:1}
@@ -229,6 +232,7 @@ dialog .row label{flex:1}
   </nav>
   <span id="badge" class="badge">Local only</span>
 </header>
+<div id="shareBanner" hidden></div>
 <main>
   <section id="view-day"></section>
   <section id="view-setup" hidden></section>
@@ -2237,14 +2241,21 @@ function renderSync() {
           : `<div class="addrow"><input id="fbEmail" type="email" placeholder="Email"><input id="fbPw" type="password" placeholder="Password"><button class="primary" data-act="fb-login">Sign in</button></div>`}
         <button class="danger" data-act="fb-disconnect">Disconnect this browser</button>`}
     </div>
+${shareCardHTML()}
     <div class="card" style="max-width:760px"><h3>One-time Firebase setup</h3>
-      <p class="help">1. In the Firebase console, open Authentication → Sign-in method and enable <b>Email/Password</b>. Then go to Users and add an account for each manager.<br>
+      <p class="help">1. In the Firebase console, open Authentication → Sign-in method and enable <b>Email/Password</b> (for shared sync with accounts: then add an account for each manager under Users) and/or <b>Anonymous</b> (for sharing the setup by link — nobody has to log in).<br>
       2. Open Firestore Database → Rules and add this block. It only covers the scheduler, so your table tracker isn't affected:</p>
 <pre class="code">rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /scheduler/{doc} {
       allow read, write: if request.auth != null;
+    }
+    // "Share the setup by link": anyone with the link can read, only the sharing device can change it
+    match /scheduler_pub/{id} {
+      allow read: if true;
+      allow create: if request.auth != null && request.resource.data.owner == request.auth.uid;
+      allow update, delete: if request.auth != null && resource.data.owner == request.auth.uid;
     }
     // ...keep your existing rules for other collections here
   }
@@ -2451,6 +2462,18 @@ document.addEventListener('click', e => {
     }
     case 'emp-del': { const em = empById(id); if (!confirm(`Delete ${em.name}?`)) return; C.employees = C.employees.filter(x => x.id !== id); saveConfig(); render(); return; }
     // sync
+    case 'share-start': {
+      const txt = ($('#shCfg') || {}).value || ''; const a = txt.indexOf('{'), z = txt.lastIndexOf('}');
+      let c = fbCfg(); if (txt.trim()) { try { c = Function('"use strict";return (' + txt.slice(a, z + 1) + ')')(); } catch (err) { alert('That doesn\'t look like a firebaseConfig object.'); return; } }
+      if (!c || !c.apiKey || !c.projectId) { alert('Paste the firebaseConfig from your Firebase project first.'); return; }
+      shareStartAlpha(c, (($('#shName') || {}).value || 'Alpha').trim() || 'Alpha'); return;
+    }
+    case 'share-copy': { const i = $('#shLink'); i.select(); try { navigator.clipboard.writeText(i.value); } catch (e) { document.execCommand('copy'); } b.textContent = 'Copied'; return; }
+    case 'share-now': sharePublish(true); return;
+    case 'share-stop': if (confirm('Stop sharing? Beta/Gamma keep the setup they have, but won\'t get updates any more.')) shareStop(); return;
+    case 'share-load': shareAdopt(SH.latest, true); return;
+    case 'share-later': { const st = shState(); st.dismissed = SH.latest && SH.latest.version; shSave(st); renderShareBanner(); return; }
+    case 'share-unfollow': if (confirm('Stop following the shared setup? This device keeps its current setup.')) { localStorage.removeItem(LSSH); location.reload(); } return;
     case 'fb-connect': {
       const txt = $('#fbCfg').value; const a = txt.indexOf('{'), z = txt.lastIndexOf('}');
       let c; try { c = Function('"use strict";return (' + txt.slice(a, z + 1) + ')')(); } catch (err) { alert('That doesn\'t look like a firebaseConfig object.'); return; }
@@ -2600,7 +2623,7 @@ function subscribeDay() {
   }, fbError);
 }
 function saveConfig() {
-  saveLocal(); if (!online()) return;
+  saveLocal(); sharePublish(false); if (!online()) return;
   pendingCfg = true; clearTimeout(cfgTimer);
   cfgTimer = setTimeout(() => {
     FB.db.collection('scheduler').doc('config').set({config: clone(state.config), updated: Date.now()})
@@ -2616,8 +2639,117 @@ function saveDay(date) {
   }, 400);
 }
 
+/* ============ Share the setup by link, no login (Alpha → Beta, Gamma) ============
+   Alpha publishes its setup to Firebase (signed in anonymously, behind the scenes). The link holds the
+   setup's id (and the Firebase project details). Beta/Gamma read it, never write: their own changes and all
+   schedules stay on their own device. When Alpha publishes something newer, they're asked before loading it. */
+const LSSH = 'staffsched.share.v1', SH = {app: null, db: null, uid: null, unsub: null, latest: null, status: '', timer: null};
+const shState = () => { try { return JSON.parse(localStorage.getItem(LSSH)) || null; } catch (e) { return null; } };
+const shSave = st => localStorage.setItem(LSSH, JSON.stringify(st));
+const b64u = o => btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64u = t => JSON.parse(decodeURIComponent(escape(atob(t.replace(/-/g, '+').replace(/_/g, '/')))));
+const shareLink = st => location.origin + location.pathname + '#setup=' + st.id + '.' + b64u({apiKey: st.fb.apiKey, authDomain: st.fb.authDomain, projectId: st.fb.projectId, appId: st.fb.appId});
+async function shareApp(fb) {
+  if (SH.db) return SH.db;
+  const v = '10.12.2', base = `https://www.gstatic.com/firebasejs/${v}/`;
+  if (!window.firebase) await loadScript(base + 'firebase-app-compat.js');
+  if (!firebase.auth) await loadScript(base + 'firebase-auth-compat.js');
+  if (!firebase.firestore) await loadScript(base + 'firebase-firestore-compat.js');
+  SH.app = firebase.apps.find(a => a.name === 'share') || firebase.initializeApp(fb, 'share');
+  SH.db = SH.app.firestore(); return SH.db;
+}
+const shDoc = id => SH.db.collection('scheduler_pub').doc(id);
+async function shareStartAlpha(fb, name) {
+  try {
+    await shareApp(fb);
+    const cred = await SH.app.auth().signInAnonymously(); SH.uid = cred.user.uid;
+    const id = Array.from(crypto.getRandomValues(new Uint8Array(15)), x => 'abcdefghijkmnpqrstuvwxyz23456789'[x % 32]).join('');
+    const st = {role: 'alpha', id, fb, name}; shSave(st);
+    await shDoc(id).set({owner: SH.uid, name, version: Date.now(), config: clone(state.config)});
+    SH.status = 'Published ' + new Date().toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit'});
+    renderSync();
+  } catch (err) { localStorage.removeItem(LSSH); alert('Could not start sharing: ' + (err.message || err) + '\n\nCheck the one-time setup steps (Anonymous sign-in and the rules for scheduler_pub).'); }
+}
+function sharePublish(now) {
+  const st = shState(); if (!st || st.role !== 'alpha') return;
+  clearTimeout(SH.timer);
+  SH.timer = setTimeout(async () => {
+    try {
+      await shareApp(st.fb);
+      if (!SH.uid) { const u = SH.app.auth().currentUser || (await SH.app.auth().signInAnonymously()).user; SH.uid = u.uid; }
+      await shDoc(st.id).set({owner: SH.uid, name: st.name || 'Alpha', version: Date.now(), config: clone(state.config)});
+      SH.status = 'Published ' + new Date().toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit'});
+    } catch (err) { SH.status = 'Could not publish: ' + (err.message || err); }
+    if (view === 'sync') renderSync();
+  }, now ? 0 : 1500);
+}
+async function shareStop() {
+  const st = shState();
+  try { await shareApp(st.fb); if (!SH.app.auth().currentUser) await SH.app.auth().signInAnonymously(); await shDoc(st.id).delete(); } catch (e) {}
+  localStorage.removeItem(LSSH); SH.status = ''; renderSync();
+}
+// Beta / Gamma: take the setup from Alpha (first time automatically, later only when they say so)
+function shareAdopt(data, ask) {
+  if (!data || !data.config) return;
+  const st = shState(); if (!st) return;
+  state.config = clone(data.config); ensureConfig(state.config); saveLocal();
+  st.version = data.version; st.dismissed = null; st.name = data.name; shSave(st);
+  SH.latest = data; render(); renderShareBanner(ask ? `Loaded ${esc(data.name || 'Alpha')}'s setup.` : `This device now has ${esc(data.name || 'Alpha')}'s setup. Changes you make here stay on this device.`);
+}
+async function shareFollow() {
+  const st = shState(); if (!st || st.role !== 'follower') return;
+  try {
+    await shareApp(st.fb);
+    if (SH.unsub) SH.unsub();
+    SH.unsub = shDoc(st.id).onSnapshot(snap => {
+      if (!snap.exists) { SH.latest = null; renderShareBanner(); return; }
+      const data = snap.data(); SH.latest = data;
+      if (!(shState() || {}).version) shareAdopt(data, false);  // first open: take it
+      else renderShareBanner();                                  // later: ask (banner)
+    }, err => { SH.status = 'Could not read the shared setup: ' + (err.message || err); if (view === 'sync') renderSync(); });
+  } catch (err) { SH.status = String(err.message || err); }
+}
+function renderShareBanner(msg) {
+  const el = $('#shareBanner'), st = shState(); if (!el) return;
+  const d = SH.latest;
+  if (st && st.role === 'follower' && d && st.version && d.version > st.version && d.version !== st.dismissed) {
+    el.innerHTML = `<span class="sp"><b>${esc(d.name || 'Alpha')} has a newer setup</b> (published ${new Date(d.version).toLocaleString('en-GB', {day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'})}). Load it? It replaces the setup on this device, including your own changes. Your schedules are kept.</span>
+      <button class="primary" data-act="share-load">Load it</button><button data-act="share-later">Not now</button>`;
+    el.hidden = false;
+  } else if (msg) { el.innerHTML = `<span class="sp">${msg}</span><button data-act="share-later">OK</button>`; el.hidden = false; }
+  else { el.hidden = true; el.innerHTML = ''; }
+}
+function shareCardHTML() {
+  const st = shState(), c = fbCfg();
+  if (st && st.role === 'alpha') return `<div class="card" style="max-width:760px"><h3>Share the setup by link <span class="muted">this device is “${esc(st.name || 'Alpha')}”</span></h3>
+    <p class="help" style="margin-top:0">Send this link to the other devices. Opening it gives them this setup; their own changes stay on their device and never come back here. Every setup change you make here is published automatically, and they're asked before loading it. Schedules aren't shared.</p>
+    <div class="sharelink"><input id="shLink" readonly value="${esc(shareLink(st))}"><button data-act="share-copy">Copy link</button></div>
+    <p class="help">${esc(SH.status || '')} <button data-act="share-now">Publish now</button> <button class="danger" data-act="share-stop">Stop sharing</button></p></div>`;
+  if (st && st.role === 'follower') return `<div class="card" style="max-width:760px"><h3>Shared setup <span class="muted">from ${esc(st.name || 'Alpha')}</span></h3>
+    <p class="help" style="margin-top:0">This device got its setup from ${esc(st.name || 'Alpha')} through a link. Changes you make here stay on this device. When ${esc(st.name || 'Alpha')} publishes a newer setup, you'll be asked before it's loaded. Schedules made here stay here.</p>
+    ${SH.status ? `<p class="help">${esc(SH.status)}</p>` : ''}
+    ${SH.latest && SH.latest.version > (st.version || 0) ? '<p><button class="primary" data-act="share-load">Load the newest setup now</button></p>' : `<p class="help">Up to date with the version from ${st.version ? new Date(st.version).toLocaleString('en-GB', {day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'}) : '—'}.</p>`}
+    <button class="danger" data-act="share-unfollow">Stop following</button></div>`;
+  return `<div class="card" style="max-width:760px"><h3>Share the setup by link <span class="muted">no login needed</span></h3>
+    <p class="help" style="margin-top:0">Make this device the main one (e.g. “Alpha”) and get a link for other devices. They get this setup when they open the link; what they change stays on their device. Needs a Firebase project (see the one-time setup below: Anonymous sign-in and the rules for <code>scheduler_pub</code>).</p>
+    <label class="ptext" style="max-width:240px">This device's name<input id="shName" type="text" value="Alpha"></label>
+    ${c ? `<p class="help">Uses the Firebase project <b>${esc(c.projectId)}</b>.</p>` : `<textarea id="shCfg" rows="6" style="width:100%" placeholder="Paste firebaseConfig here: const firebaseConfig = { apiKey: ..., authDomain: ..., projectId: ..., appId: ... };"></textarea>`}
+    <div class="toolbar" style="margin-top:8px"><button class="primary" data-act="share-start">Start sharing from this device</button></div></div>`;
+}
+// Opened with a share link? Remember it, then tidy the address bar.
+(() => {
+  const m = location.hash.match(/#setup=([a-z0-9]+)\.([A-Za-z0-9_-]+)/); if (!m) return;
+  const cur = shState();
+  if (cur && cur.role === 'alpha' && cur.id === m[1]) { history.replaceState(null, '', location.pathname); return; }
+  let fb; try { fb = unb64u(m[2]); } catch (e) { return; }
+  if (!cur || cur.id !== m[1]) shSave({role: 'follower', id: m[1], fb, version: 0});
+  history.replaceState(null, '', location.pathname);
+})();
+
 render();
 fbStart();
+shareFollow();
+{ const st = shState(); if (st && st.role === 'alpha') shareApp(st.fb).then(() => SH.app.auth().onAuthStateChanged(u => { if (u) SH.uid = u.uid; })).catch(() => {}); }
 </script>
 </body>
 </html>
