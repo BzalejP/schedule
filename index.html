@@ -176,7 +176,8 @@ dialog .row label{flex:1}
 .paxrow label.ptext{display:grid;grid-template-columns:1fr;gap:3px;align-items:start;margin-top:10px;font-size:13px;font-weight:600}
 .paxrow label.ptext .muted{display:inline;margin:0 0 0 4px;font-weight:400}
 .paxrow .ptext input,.paxrow .ptext textarea{width:100%;box-sizing:border-box;font:inherit;font-size:14px;font-weight:400;color:var(--ink)}
-.sgrid th.sign-off{color:#c00000}.sgrid th.sign-on{color:#00a040}
+.sgrid th.sign-off{color:#c00000;font-weight:600}.sgrid th.sign-on{color:#00a040;font-weight:600}
+.chip.sign-off{background:#fde8e8;color:#c00000;border-color:#f3b4b4}.chip.sign-on{background:#e6f6ec;color:#00843a;border-color:#a8dcb9}
 .sgrid col.c-sig{width:90px}.sgrid th.sig{font-size:11px;line-height:1.1;background:#fff}
 .ph,.poh,.pbk{border-collapse:collapse;font-size:11px;color:#000}
 .ph{width:100%;margin-bottom:3px;table-layout:fixed}
@@ -1809,7 +1810,7 @@ function renderDay() {
     <div class="chips">${emps.map(e => `<button class="chip ${working.has(e.id) ? 'on' : ''}" data-act="toggle" data-id="${e.id}">${esc(e.name)}${e.headAt && spById(e.headAt) ? ` <small>★ ${esc(spById(e.headAt).name)}</small>` : ''}${isBackup(e) ? ` <small>${rankLabel(e)}</small>` : ''}${e.team ? ` <small>${esc((spById(e.team) || {}).name || e.team)} team</small>` : ''}${e.night ? ` <small>${esc((spById(e.night) || {}).name || e.night)} nightshift</small>` : ''}${e.fifty ? ' <small>50/50</small>' : ''}</button>`).join('') || '<span class="muted">Add employees in Setup.</span>'}</div>
     ${day.working.length ? `<div class="signrow"><span class="muted">Signing off / on today (${R().signHours}h, in a row; ${(pc => [pc.arr ? `ship arrives ${pc.arr}, sign-on from then` : 'no arrival', pc.dep ? `departs ${pc.dep}, sign-off done by ${slotTime(toSlot(pc.dep) - Math.round((+R().signOffBeforeDepMin || 0) / 30))}` : 'no departure'].join('; '))(portFor(curDate, day))}). Tap to switch:</span>
       ${emps.filter(e => working.has(e.id)).map(e => { const sg = day.signing.includes(e.id), on = sg && day.signDir[e.id] === 'on';
-        return `<button class="chip small ${sg ? 'on' : ''}" data-act="sign" data-id="${e.id}" title="Tap: signing off → signing on → neither">${esc(e.name)}${sg ? (on ? ' ⬆ on' : ' ⬇ off') : ''}</button>`; }).join('')}</div>` : ''}</div>`;
+        return `<button class="chip small ${sg ? (on ? 'sign-on' : 'sign-off') : ''}" data-act="sign" data-id="${e.id}" title="Tap: signing off → signing on → neither">${esc(e.name)}${sg ? (on ? ' ⬆ on' : ' ⬇ off') : ''}</button>`; }).join('')}</div>` : ''}</div>`;
 
   const se = seasonFor(curDate), noSail = (SAILING[curDate] || [])[0] === 'no sailing';
   const hours = `<div class="card"><h3>Opening hours today <span class="muted">${noSail ? 'no sailing: everything closed' : se ? esc(seasonName(se)) : 'standard week'}</span></h3>${sps.filter(sp => !sp.hoursFrom).map(sp => {
@@ -1921,7 +1922,7 @@ function gridHTML(day, need, cover, forPrint) {
     const total = workBlocks(day, e.id).reduce((a, b) => a + b.end - b.start, 0) / 2;
     const want = targetSlots(e, day) / 2;
     const sg = (day.signing || []).includes(e.id) ? ((day.signDir || {})[e.id] === 'on' ? ' sign-on' : ' sign-off') : '';
-    h += `<tr><th class="name${forPrint ? sg : ''}">${esc(e.name)}${e.headAt && !forPrint ? ' <span class="star">★</span>' : ''}${isBackup(e) ? ` <span class="tag mgr">${e.manager ? 'mgr' : 'sup'}</span>` : ''}${(day.signing || []).includes(e.id) && !forPrint ? ` <span class="tag">${(day.signDir || {})[e.id] === 'on' ? 'sign on' : 'sign off'}</span>` : ''}</th>`;
+    h += `<tr><th class="name${sg}">${esc(e.name)}${e.headAt && !forPrint ? ' <span class="star">★</span>' : ''}${isBackup(e) ? ` <span class="tag mgr">${e.manager ? 'mgr' : 'sup'}</span>` : ''}${(day.signing || []).includes(e.id) && !forPrint ? ` <span class="tag">${(day.signDir || {})[e.id] === 'on' ? 'sign on' : 'sign off'}</span>` : ''}</th>`;
     for (let k = 0; k < SLOTS; k++) {
       const s = mine.find(x => k >= x.start && k < x.end), b = brk.get(e.id + ':' + k), sp = s && spById(s.sp);
       const bg = b ? BREAK_COLOR : sp ? sp.color : '';
@@ -2463,9 +2464,9 @@ document.addEventListener('click', e => {
     case 'emp-del': { const em = empById(id); if (!confirm(`Delete ${em.name}?`)) return; C.employees = C.employees.filter(x => x.id !== id); saveConfig(); render(); return; }
     // sync
     case 'share-start': {
-      const txt = ($('#shCfg') || {}).value || ''; const a = txt.indexOf('{'), z = txt.lastIndexOf('}');
-      let c = fbCfg(); if (txt.trim()) { try { c = Function('"use strict";return (' + txt.slice(a, z + 1) + ')')(); } catch (err) { alert('That doesn\'t look like a firebaseConfig object.'); return; } }
-      if (!c || !c.apiKey || !c.projectId) { alert('Paste the firebaseConfig from your Firebase project first.'); return; }
+      // whichever box it was pasted in (this one or "Shared sync" above), or the project already connected
+      const c = parseFbConfig(($('#shCfg') || {}).value) || parseFbConfig(($('#fbCfg') || {}).value) || fbCfg();
+      if (!c || !c.apiKey || !c.projectId) { alert('Couldn\'t find the Firebase details.\n\nIn the Firebase console open Project settings (gear icon) → Your apps → your web app, copy the block that starts with "const firebaseConfig = {" (it contains apiKey and projectId) and paste it into the box under "Share the setup by link".'); return; }
       shareStartAlpha(c, (($('#shName') || {}).value || 'Alpha').trim() || 'Alpha'); return;
     }
     case 'share-copy': { const i = $('#shLink'); i.select(); try { navigator.clipboard.writeText(i.value); } catch (e) { document.execCommand('copy'); } b.textContent = 'Copied'; return; }
@@ -2475,9 +2476,8 @@ document.addEventListener('click', e => {
     case 'share-later': { const st = shState(); st.dismissed = SH.latest && SH.latest.version; shSave(st); renderShareBanner(); return; }
     case 'share-unfollow': if (confirm('Stop following the shared setup? This device keeps its current setup.')) { localStorage.removeItem(LSSH); location.reload(); } return;
     case 'fb-connect': {
-      const txt = $('#fbCfg').value; const a = txt.indexOf('{'), z = txt.lastIndexOf('}');
-      let c; try { c = Function('"use strict";return (' + txt.slice(a, z + 1) + ')')(); } catch (err) { alert('That doesn\'t look like a firebaseConfig object.'); return; }
-      if (!c || !c.apiKey || !c.projectId) { alert('The config needs at least apiKey and projectId.'); return; }
+      const c = parseFbConfig($('#fbCfg').value);
+      if (!c) { alert('Couldn\'t find the Firebase details. Paste the block that starts with "const firebaseConfig = {" (it contains apiKey and projectId).'); return; }
       localStorage.setItem(LSFB, JSON.stringify(c)); fbStart(); render(); return;
     }
     case 'fb-disconnect': if (confirm('Stop syncing in this browser? Data already saved here stays.')) { localStorage.removeItem(LSFB); location.reload(); } return;
@@ -2643,6 +2643,16 @@ function saveDay(date) {
    Alpha publishes its setup to Firebase (signed in anonymously, behind the scenes). The link holds the
    setup's id (and the Firebase project details). Beta/Gamma read it, never write: their own changes and all
    schedules stay on their own device. When Alpha publishes something newer, they're asked before loading it. */
+// Read a firebaseConfig from whatever was pasted: the bare object, "const firebaseConfig = {...}",
+// or the whole snippet from the Firebase console (with import lines and initializeApp).
+function parseFbConfig(txt) {
+  const c = {};
+  ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId', 'measurementId'].forEach(k => {
+    const m = String(txt || '').match(new RegExp('["\']?' + k + '["\']?\\s*:\\s*["\'`]([^"\'`]+)["\'`]'));
+    if (m) c[k] = m[1].trim();
+  });
+  return c.apiKey && c.projectId ? c : null;
+}
 const LSSH = 'staffsched.share.v1', SH = {app: null, db: null, uid: null, unsub: null, latest: null, status: '', timer: null};
 const shState = () => { try { return JSON.parse(localStorage.getItem(LSSH)) || null; } catch (e) { return null; } };
 const shSave = st => localStorage.setItem(LSSH, JSON.stringify(st));
