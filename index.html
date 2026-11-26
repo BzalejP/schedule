@@ -1799,14 +1799,36 @@ function renderInner() {
   renderBadge();
 }
 
+// Crew for a day, from the nearest earlier day with crew ticked (up to 3 weeks back): everyone who was in,
+// minus anyone who signed off that day. People who signed on were already ticked in, so they carry over.
+function crewFromBefore(date) {
+  for (let i = 1; i <= 21; i++) {
+    const ds = addDays(date, -i), d = state.days[ds];
+    if (!d || !(d.working || []).length) continue;
+    const off = (d.signing || []).filter(id => (d.signDir || {})[id] !== 'on');
+    const ids = d.working.filter(id => !off.includes(id) && empById(id));
+    return {from: ds, ids, off: off.map(id => (empById(id) || {}).name).filter(Boolean)};
+  }
+  return null;
+}
+function loadCrew(date, day) {
+  const c = crewFromBefore(date); if (!c) return false;
+  day.working = c.ids; day.crewAuto = c.from; day.crewOff = c.off;
+  day.signing = (day.signing || []).filter(id => c.ids.includes(id));
+  saveDay(date); return true;
+}
+
 function renderDay() {
   const {salesPoints: sps, employees: emps} = cfg();
   const day = getDay(curDate);
+  // a new day starts with yesterday's crew (once; after that it's up to you)
+  if (!day.working.length && !day.shifts.length && !day.crewAuto) loadCrew(curDate, day);
   const need = computeNeed(curDate, day), cover = computeCover(day);
   const working = new Set(day.working);
 
   const who = `<div class="card"><h3>Who's in <span class="muted">${day.working.length}</span>
-    <span class="acts"><button data-act="all">All</button><button data-act="none">None</button><button data-act="copyprev" title="Copy from the same weekday last week">Last week</button></span></h3>
+    <span class="acts"><button data-act="all">All</button><button data-act="none">None</button><button data-act="copyprev" title="Copy from the same weekday last week">Last week</button><button data-act="crew-prev" title="Crew from the previous day, without anyone who signed off">Previous day</button></span></h3>
+    ${day.crewAuto ? `<p class="help" style="margin:0 0 6px">Crew carried over from ${esc(new Date(day.crewAuto + 'T12:00:00').toLocaleDateString('en-GB', {weekday: 'short', day: 'numeric', month: 'short'}))}${(day.crewOff || []).length ? ` — without ${esc(day.crewOff.join(', '))} (signed off)` : ''}.</p>` : ''}
     <div class="chips">${emps.map(e => `<button class="chip ${working.has(e.id) ? 'on' : ''}" data-act="toggle" data-id="${e.id}">${esc(e.name)}${e.headAt && spById(e.headAt) ? ` <small>★ ${esc(spById(e.headAt).name)}</small>` : ''}${isBackup(e) ? ` <small>${rankLabel(e)}</small>` : ''}${e.team ? ` <small>${esc((spById(e.team) || {}).name || e.team)} team</small>` : ''}${e.night ? ` <small>${esc((spById(e.night) || {}).name || e.night)} nightshift</small>` : ''}${e.fifty ? ' <small>50/50</small>' : ''}</button>`).join('') || '<span class="muted">Add employees in Setup.</span>'}</div>
     ${day.working.length ? `<div class="signrow"><span class="muted">Signing off / on today (${R().signHours}h, in a row; ${(pc => [pc.arr ? `ship arrives ${pc.arr}, sign-on from then` : 'no arrival', pc.dep ? `departs ${pc.dep}, sign-off done by ${slotTime(toSlot(pc.dep) - Math.round((+R().signOffBeforeDepMin || 0) / 30))}` : 'no departure'].join('; '))(portFor(curDate, day))}). Tap to switch:</span>
       ${emps.filter(e => working.has(e.id)).map(e => { const sg = day.signing.includes(e.id), on = sg && day.signDir[e.id] === 'on';
@@ -2381,6 +2403,7 @@ document.addEventListener('click', e => {
     case 'toggle': day.working = day.working.includes(id) ? day.working.filter(x => x !== id) : [...day.working, id]; break;
     case 'all': day.working = C.employees.map(x => x.id); break;
     case 'none': day.working = []; break;
+    case 'crew-prev': if (!loadCrew(curDate, day)) alert('No earlier day with crew ticked in (looked 3 weeks back).'); break;
     case 'copyprev': { const p = state.days[addDays(curDate, -7)]; if (!p || !p.working.length) { alert('Nobody was ticked in on the same weekday last week.'); return; } day.working = [...p.working]; break; }
     case 'hours-reset': delete day.hours[id]; break;
     case 'port-reset': delete day.port; break;
