@@ -530,7 +530,7 @@ function ensureConfig(c) {
   }
   c.rules ||= {};
   if ('maxShiftH' in c.rules) { delete c.rules.maxShiftH; c.rules.minShiftH = 2; changed = true; }
-  const RULE_DEFAULTS = {minBreakBlockH: 0, signOffBeforeDepMin: 60, maxBeforeOpenMin: 60, minShiftH: 2, dayHours: 10, signHours: 5, minSplitH: 2, minRestH: 6, mealBreakMin: 30,
+  const RULE_DEFAULTS = {minBreakBlockH: 0, signOffBeforeDepMin: 60, maxBeforeOpenMin: 60, minShiftH: 2, dayHours: 10, signHours: 5, fullSignHw: ['munkastova', 'laterna'], minSplitH: 2, minRestH: 6, mealBreakMin: 30,
     meals: [{label: 'Lunch', from: '11:30', to: '13:00'}, {label: 'Dinner', from: '16:30', to: '18:30'}]};
   for (const k in RULE_DEFAULTS) if (c.rules[k] === undefined) { c.rules[k] = clone(RULE_DEFAULTS[k]); changed = true; }
   (c.positions || []).forEach(p => { // day now starts 05:00
@@ -867,7 +867,11 @@ function gapRanges(n, c) {
 
 /* ============ Working-time rules ============ */
 const R = () => cfg().rules;
-const targetSlots = (e, day) => Math.round(((day.signing || []).includes(e.id) ? R().signHours : R().dayHours) * 2);
+// Headwaiters of these places (Setup → Working-time rules) work a full day when signing on and nothing when signing off.
+const fullSignHw = e => !!(e && e.headAt && (R().fullSignHw || []).includes(e.headAt));
+const isSigning = (e, day) => (day.signing || []).includes(e.id);
+const shortSign = (e, day) => isSigning(e, day) && !fullSignHw(e);   // the usual 5h, in a row
+const targetSlots = (e, day) => Math.round((!isSigning(e, day) ? R().dayHours : !fullSignHw(e) ? R().signHours : (day.signDir || {})[e.id] === 'on' ? R().dayHours : 0) * 2);
 const minGapSlots = () => Math.max(1, Math.round(R().minSplitH * 2)); // break between the two parts of a day
 const minPartSlots = () => Math.max(1, Math.round(R().minShiftH * 2));
 // Earliest slot today that still gives the minimum rest after yesterday's last shift.
@@ -958,7 +962,7 @@ function checkRules(date, day) {
       const pc = portFor(date, day), on = (day.signDir || {})[e.id] === 'on', [w0, w1] = signWindow(e, date, day);
       const arr = on ? pc.arr : pc.dep;
       if (!arr) out.push(`${e.name} ${signLabel(e, day)} today, but there is no port ${on ? 'arrival' : 'departure'} (set it under Opening hours today).`);
-      if (blocks.length > 1) out.push(`${e.name} ${signLabel(e, day)} today: the hours must be in a row, not split.`);
+      if (blocks.length > 1 && shortSign(e, day)) out.push(`${e.name} ${signLabel(e, day)} today: the hours must be in a row, not split.`);
       const bad = blocks.find(b => b.start < w0 || b.end > w1);
       if (bad && arr) out.push(`${e.name} ${signLabel(e, day)} and must work ${signDeadline(e, date, day)}, but works ${slotTime(bad.start)}–${slotTime(bad.end)}.`);
     }
@@ -1011,14 +1015,14 @@ function generate(date, day) {
   const {salesPoints: sps, employees} = cfg();
   const need = computeNeed(date, day);
   const cover = {}; sps.forEach(sp => cover[sp.id] = new Array(SLOTS).fill(0));
-  const pool = employees.filter(e => day.working.includes(e.id) && !isBackup(e));
+  const pool = employees.filter(e => day.working.includes(e.id) && !isBackup(e) && targetSlots(e, day) > 0); // (headwaiter signing off: not working)
   const backups = employees.filter(e => day.working.includes(e.id) && isBackup(e));
   const used = new Set(), shifts = [], notes = [];
   const minPart = minPartSlots(), minGap = minGapSlots();
   // Within the generator, a signing person may only work before (off) / after (on) the ship's arrival.
   const empMask = (e, spId) => { const m = empMaskBase(e, spId), [w0, w1] = signWindow(e, date, day); return m.map((x, k) => x && k >= w0 && k < w1); };
   const inWindow = (e, a, b) => { const [w0, w1] = signWindow(e, date, day); return a >= w0 && b <= w1; };
-  const oneBlock = e => (day.signing || []).includes(e.id);
+  const oneBlock = e => shortSign(e, day);
   const isOpenDay = spId => spHours(spById(spId), date, day).periods.length > 0;
   const homeOpen = e => e.headAt && spById(e.headAt) && isOpenDay(e.headAt);
   const place = (e, spId, start, end, fixed, role) => {
@@ -1275,7 +1279,7 @@ function generate(date, day) {
         e = pool2[0] || cands[0];
       }
       if (!e && r.who === 'headwaiter') { // no headwaiter in: anyone who may work there at that time
-        const any = free().filter(x => !!blockFor(x) && empMask(x, r.sp)[start] && !notMine(x, r) && !(homeOpen(x) && x.headAt !== r.sp)).sort((a, b) => flex(a) - flex(b));
+        const any = free().filter(x => !!blockFor(x) && empMask(x, r.sp)[start] && !notMine(x, r) && !(homeOpen(x) && x.headAt !== r.sp)).sort((a, b) => (!!a.night - !!b.night) || flex(a) - flex(b));
         e = any[0]; if (e) notes.push(`No ${sp.name} headwaiter is in, so ${e.name} opens.`);
       }
       holderNote(r, e, 'opened');
@@ -1367,7 +1371,8 @@ function generate(date, day) {
         const heads = free().filter(e => e.headAt === r.sp && can(e)).sort(prefer);
         let lead = heads[0];
         if (!lead) { lead = others()[0]; if (lead) notes.push(`No ${sp.name} headwaiter is in, so ${lead.name} takes the ${sp.name} day.`); }
-        if (lead) {
+        if (lead && isSigning(lead, day)) { const p = bestPlan(lead, 50, r.sp); if (p) assignPlan(lead, p); } // signing on: from arrival
+        else if (lead) {
           const T = targetSlots(lead, day);
           let a = fixedDay.end ? endSlot(fixedDay.end) - T : toSlot(fixedDay.start); a = Math.max(0, a);
           if (!restOk(lead, a)) notes.push(`${lead.name} starts ${sp.name} at ${slotTime(a)} without ${R().minRestH}h rest.`);
@@ -1390,7 +1395,7 @@ function generate(date, day) {
       if (fixedDay) { /* lead placed above */ }
       else if (lead) {
         const T = targetSlots(lead, day);
-        if (h.periods.length >= 2 && r.dinner && !oneBlock(lead)) {
+        if (h.periods.length >= 2 && r.dinner && !oneBlock(lead) && inWindow(lead, toSlot(r.lunch[0]), Math.min(SLOTS, toSlot(r.dinner[0]) + 1))) {
           const l0 = toSlot(r.lunch[0]), l1 = endSlot(r.lunch[1]), d0 = toSlot(r.dinner[0]);
           if (!restOk(lead, l0)) notes.push(`${lead.name} starts ${sp.name} at ${r.lunch[0]} without ${R().minRestH}h rest.`);
           const lunchLen = Math.min(l1 - l0, T), dinLen = Math.min(endSlot(r.dinner[1]) - d0, T - lunchLen);
@@ -1916,7 +1921,7 @@ function dayResultsHTML(day) {
       alerts.push(['bad', `<b>${esc(sp.name)}</b> is short ${g.max} ${g.max > 1 ? 'people' : 'person'} ${slotTime(g.s)}–${slotTime(g.e)}`]));
   });
   if (day.shifts.length) {
-    const idle = emps.filter(e => working.has(e.id) && !isBackup(e) && !day.shifts.some(s => s.emp === e.id));
+    const idle = emps.filter(e => working.has(e.id) && !isBackup(e) && targetSlots(e, day) > 0 && !day.shifts.some(s => s.emp === e.id));
     const usedB = emps.filter(e => isBackup(e) && day.shifts.some(s => s.emp === e.id));
     if (usedB.length) alerts.push(['info', `Gaps filled by managers/supervisors: ${usedB.map(e => `${esc(e.name)} (${day.shifts.filter(s => s.emp === e.id).sort((a, b) => a.start - b.start).map(s => `${esc(spById(s.sp).name)} ${slotTime(s.start)}–${slotTime(s.end)}`).join(', ')})`).join('; ')}`]);
     if (idle.length) alerts.push(['info', `In today but not on the schedule: ${idle.map(e => esc(e.name)).join(', ')}`]);
@@ -2231,6 +2236,8 @@ function renderSetup() {
       <div class="fields" style="max-width:640px">
         <label>Standard day (hours) <input type="number" min="1" step="0.5" value="${rules.dayHours}" data-ch="rule" data-f="dayHours"></label>
         <label>Signing on/off day (hours) <input type="number" min="0.5" step="0.5" value="${rules.signHours}" data-ch="rule" data-f="signHours"></label>
+        <div style="grid-column:1/-1;font-size:13px">Headwaiters who work a full day when signing on and nothing when signing off:
+          ${cfg().salesPoints.filter(sp => !sp.hoursFrom).map(sp => `<label style="display:inline-flex;flex-direction:row;gap:4px;align-items:center;margin-right:12px"><input type="checkbox" ${(rules.fullSignHw || []).includes(sp.id) ? 'checked' : ''} data-ch="rule-fullsign" data-sp="${sp.id}">${esc(sp.name)}</label>`).join('')}</div>
         <label>Break between shifts at least (hours) <input type="number" min="0.5" step="0.5" value="${rules.minSplitH}" data-ch="rule" data-f="minSplitH"></label>
         <label>Minimum rest between days (hours) <input type="number" min="0" step="0.5" value="${rules.minRestH}" data-ch="rule" data-f="minRestH"></label>
         <label>Shortest part of a split (hours) <input type="number" min="0.5" step="0.5" value="${rules.minShiftH}" data-ch="rule" data-f="minShiftH"></label>
@@ -2555,6 +2562,7 @@ document.addEventListener('change', e => {
   else if (ch === 'cabin') { C.cabins = {...CABINS(), days: {...(CABINS().days || {})}}; C.cabins.days[el.dataset.d] = {...(C.cabins.days[el.dataset.d] || {}), [f]: el.value}; }
   else if (ch === 'cabin-color') { C.cabins = {...CABINS(), color: el.value}; }
   else if (ch === 'phone') { C.rules.phones = PHONES().map(x => ({...x})); C.rules.phones[+el.dataset.i][f] = el.value; }
+  else if (ch === 'rule-fullsign') { const set = new Set(C.rules.fullSignHw || []); if (el.checked) set.add(el.dataset.sp); else set.delete(el.dataset.sp); C.rules.fullSignHw = [...set]; }
   else if (ch === 'prio') { C.rules.prio = {...(C.rules.prio || {}), [f]: Math.max(0, parseInt(el.value) || 0)}; }
   else if (ch === 'rule') { C.rules[f] = Math.max(['minRestH', 'signOffBeforeDepMin', 'maxBeforeOpenMin', 'minBreakBlockH'].includes(f) ? 0 : 0.5, parseFloat(el.value) || 0); }
   else if (ch === 'meal') { C.rules.meals[+el.dataset.i][f] = el.value; }
