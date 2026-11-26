@@ -149,6 +149,7 @@ dialog .row label{flex:1}
 .sgrid th.name{text-align:left;font-weight:400;color:#1a1a1a;padding:0 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:sticky;left:0;z-index:1}
 .sgrid .star{color:#c55a11}.sgrid .tag.mgr{background:#d9d9d9}.sgrid .tag{font-size:10px;background:#ffe699;border-radius:3px;padding:0 3px}
 .sgrid td[data-act]{cursor:pointer}
+.sgrid td.man{box-shadow:inset 0 -4px 0 rgba(0,0,0,.45)}
 .sgrid td[data-act]:hover{outline:2px solid #1a1a1a;outline-offset:-2px}
 .sgrid td.num{text-align:center;font-weight:700}
 .sgrid td.num.ok{background:#00B050;color:#fff}
@@ -635,8 +636,8 @@ function pairFifties(date, day) {
     const f = empById(emp), onBreak = id => (day.breaks || []).some(b => b.emp === id && k >= b.slot && k < b.slot + b.len);
     const cand = day.shifts.filter(x => x.sp !== PAIRED_SP && x.sp !== 'hk' && k >= x.start && k < x.end && !isFifty(x.emp) && !onBreak(x.emp)
       && empMask(empById(x.emp), PAIRED_SP)[k] && empMask(f, x.sp)[k]);
-    const r = cand.find(x => !x.fixed) || cand[0];
-    if (!r) continue;
+    const r = cand.find(x => !x.fixed && !x.manual) || cand.find(x => !x.manual);
+    if (!r || day.shifts.some(x => x.emp === emp && x.manual && k >= x.start && k < x.end)) continue;
     const other = r.sp;
     setSlots(day, r.emp, k, k + 1, PAIRED_SP); setSlots(day, emp, k, k + 1, other); fixed++;
   }
@@ -1138,6 +1139,10 @@ function generate(date, day) {
     plan.parts.forEach(p => place(e, p.sp, p.a, p.a + p.L));
   };
 
+  // 0) Hand-made shifts come first and stay as they are; the rest of that person's day is filled in after the
+  //    headwaiters (step 1c). Everyone else is planned around them.
+  const handMade = (day.shifts || []).filter(s => s.manual && day.working.includes(s.emp));
+  handMade.forEach(s => { shifts.push({...s}); if (cover[s.sp]) for (let k = s.start; k < s.end; k++) cover[s.sp][k]++; used.add(s.emp); });
   // 0a) 50/50s: their cabin cleaning (housekeeping) first, the restaurant half comes after the headwaiters (step 1b)
   const cw50 = cabinWindow(date), fifties = [];
   if (cw50) pool.filter(e => e.fifty && !(day.signing || []).includes(e.id)).forEach(e => {
@@ -1465,6 +1470,12 @@ function generate(date, day) {
   free().filter(e => homeOpen(e)).forEach(e => { const p = bestPlan(e, 3, e.headAt, 6, false, null, e.headAt === 'skansagardur'); if (p) assignPlan(e, p); });
   // 1b) 50/50s: the restaurant half, right before or after cabins, or with a proper break in between
   fifties.forEach(([e, a, b]) => topUp(e, [[a, b]], true));
+  // 1c) people with hand-made shifts: the rest of their hours, around what you set
+  [...new Set(handMade.map(s => s.emp))].map(empById).filter(e => e && !isBackup(e)).forEach(e => {
+    const mine = shifts.filter(x => x.emp === e.id).sort((p, q) => p.start - q.start), bl = [];
+    mine.forEach(x => { const l = bl[bl.length - 1]; if (l && x.start <= l[1]) l[1] = Math.max(l[1], x.end); else bl.push([x.start, x.end]); });
+    if (bl.length === 1 && targetSlots(e, day) - (bl[0][1] - bl[0][0]) >= 1) topUp(e, bl, true);
+  });
 
   // 2) Everyone else, biggest gaps first
   while (true) {
@@ -1488,7 +1499,7 @@ function generate(date, day) {
       if (!mine.length || total >= T) break;
       let best = null;
       for (const sh of mine) {
-        if (sh.fixed) continue;                                // fixed-rule shifts keep their shape
+        if (sh.fixed || sh.manual) continue;                   // fixed-rule and hand-made shifts keep their shape
         const spx = spById(sh.sp), h = spHours(spx, date, day), n = need[sh.sp], c = cover[sh.sp];
         for (const side of ['end', 'start']) {
           const k = side === 'end' ? sh.end : sh.start - 1;
@@ -1557,7 +1568,7 @@ function mergePieces(shifts) {
   const list = [...shifts].sort((a, b) => a.emp.localeCompare(b.emp) || a.start - b.start);
   for (let i = 1; i < list.length; i++) {
     const p = list[i - 1], q = list[i];
-    if (p.emp === q.emp && p.sp === q.sp && p.end === q.start && (p.fixed || '') === (q.fixed || '') && (p.role || '') === (q.role || '')) {
+    if (p.emp === q.emp && p.sp === q.sp && p.end === q.start && (p.fixed || '') === (q.fixed || '') && (p.role || '') === (q.role || '') && !!p.manual === !!q.manual) {
       p.end = q.end; shifts.splice(shifts.indexOf(q), 1); list.splice(i--, 1);
     }
   }
@@ -1583,7 +1594,7 @@ function coverBreaks(date, day) {
       let best = null;
       // someone working elsewhere right then walks over for the break (same hours, the bar is never left empty)
       for (const s of day.shifts) {
-        const e = empById(s.emp); if (!e || s.emp === b.emp || s.fixed || s.sp === sp || s.breakCover) continue;
+        const e = empById(s.emp); if (!e || s.emp === b.emp || s.fixed || s.manual || s.sp === sp || s.breakCover) continue;
         if (e.fifty && sp === PAIRED_SP) continue;
         if (!(s.start <= a && s.end >= z) || (s.start === a && s.end === z)) continue; // working there right then
         if (!empMask(e, sp).slice(a, z).every(Boolean)) continue;
@@ -1593,7 +1604,7 @@ function coverBreaks(date, day) {
         if (!best || score > best.score) best = {s, mid: true, score};
       }
       for (const s of day.shifts) {
-        const e = empById(s.emp); if (!e || s.emp === b.emp || s.fixed) continue;   // fixed-rule shifts stay as they are
+        const e = empById(s.emp); if (!e || s.emp === b.emp || s.fixed || s.manual) continue;   // fixed-rule and hand-made shifts stay as they are
         if (e.fifty && sp === PAIRED_SP) continue;
         if (!empMask(e, sp).slice(a, z).every(Boolean)) continue;                  // must be allowed to work there
         if (day.shifts.some(x => x.emp === s.emp && x !== s && x.start < z && x.end > a)) continue;
@@ -1948,8 +1959,8 @@ function gridHTML(day, need, cover, forPrint) {
     for (let k = 0; k < SLOTS; k++) {
       const s = mine.find(x => k >= x.start && k < x.end), b = brk.get(e.id + ':' + k), sp = s && spById(s.sp);
       const bg = b ? BREAK_COLOR : sp ? sp.color : '';
-      const tip = b ? `${b.meal} break ${slotTime(k)}` : sp ? `${sp.name} ${slotTime(s.start)}–${slotTime(s.end)}` : `${e.name}, ${slotTime(k)}: add a shift`;
-      h += `<td class="${slotTime(k).endsWith(':00') ? 'hr' : ''}"${bg ? ` style="background:${bg}"` : ''}${forPrint ? '' : ` data-act="cell" data-emp="${e.id}" data-k="${k}" title="${esc(tip)}"`}></td>`;
+      const tip = b ? `${b.meal} break ${slotTime(k)}` : sp ? `${sp.name} ${slotTime(s.start)}–${slotTime(s.end)}${s.manual ? ' (hand-made: kept when generating)' : ''}` : `${e.name}, ${slotTime(k)}: add a shift`;
+      h += `<td class="${slotTime(k).endsWith(':00') ? 'hr' : ''}${s && s.manual && !forPrint ? ' man' : ''}"${bg ? ` style="background:${bg}"` : ''}${forPrint ? '' : ` data-act="cell" data-emp="${e.id}" data-k="${k}" title="${esc(tip)}"`}></td>`;
     }
     const ok = total === want && total > 0;
     h += `<td class="num ${total ? (ok ? 'ok' : 'off') : ''}">${total ? total.toFixed(2).replace('.', ',') : ''}</td><td class="num rest">${total ? (24 - total).toFixed(2).replace('.', ',') : ''}</td>${forPrint ? '<td class="sig"></td>' : ''}</tr>`;
@@ -1961,7 +1972,7 @@ function gridHTML(day, need, cover, forPrint) {
   if (forPrint) h += `<div class="glegend">${[...shown, ...(hkOn ? [HK_SP()] : [])].map(sp => `<span><i style="background:${sp.color}"></i>${esc(sp.name)}</span>`).join('')}<span><i style="background:${BREAK_COLOR}"></i>Break</span></div>`;
   else h += `<div class="glegend paint">${[...sps, ...(hkAny ? [HK_SP()] : [])].map(sp => `<button class="brush${ui.brush === sp.id ? ' on' : ''}" data-act="brush" data-v="${sp.id}" title="Paint ${esc(sp.name)}"><i style="background:${sp.color}"></i>${esc(sp.name)}</button>`).join('')}
       <button class="brush${ui.brush === 'erase' ? ' on' : ''}" data-act="brush" data-v="erase" title="Erase"><i class="eraser"></i>Eraser</button>
-      <span class="legend-only"><i style="background:${BREAK_COLOR}"></i>Break</span></div>
+      <span class="legend-only"><i style="background:${BREAK_COLOR}"></i>Break</span>${day.shifts.some(s => s.manual) ? '<span class="legend-only"><i style="background:#fff;box-shadow:inset 0 -4px 0 rgba(0,0,0,.45)"></i>Hand-made (kept when generating)</span>' : ''}</div>
     <p class="help paint-help">${ui.brush ? `<b>${ui.brush === 'erase' ? 'Eraser' : esc(spById(ui.brush).name)}</b> selected: press and drag along a person's row. Right-click drag erases. Click the colour again or press Esc to stop.` : 'Pick a colour above, then drag along a person\'s row to add work. Right-click and drag to remove. Without a colour, click a cell to edit that shift.'}</p>`;
   if (!forPrint) {
     h += `<details class="gcov"${day.shifts.length ? '' : ' open'}><summary>Staff on / needed per half hour</summary><table class="sgrid cov"><colgroup><col class="c-name">${'<col class="c-slot">'.repeat(SLOTS)}<col class="c-num"><col class="c-num"></colgroup><tbody>`;
@@ -2299,17 +2310,20 @@ function renderBadge() {
 
 /* ============ Painting shifts on the grid ============ */
 // Set a person's half hours a..b to a sales point (or clear them), then rebuild their shifts.
-function setSlots(day, empId, a, b, spId) {
-  const old = day.shifts.filter(s => s.emp === empId), arr = new Array(SLOTS).fill(null);
-  old.forEach(s => { for (let k = s.start; k < s.end; k++) arr[k] = s.sp; });
-  for (let k = Math.max(0, a); k < Math.min(SLOTS, b); k++) arr[k] = spId;
+// Hand-made half hours (painted or added in the shift window) are marked "manual": Generate keeps them.
+function setSlots(day, empId, a, b, spId, manual = false) {
+  const old = day.shifts.filter(s => s.emp === empId), arr = new Array(SLOTS).fill(null), man = new Array(SLOTS).fill(false);
+  old.forEach(s => { for (let k = s.start; k < s.end; k++) { arr[k] = s.sp; man[k] = !!s.manual; } });
+  for (let k = Math.max(0, a); k < Math.min(SLOTS, b); k++) { arr[k] = spId; man[k] = manual; }
   const out = [], used = new Set();
   for (let k = 0; k < SLOTS;) {
     if (!arr[k]) { k++; continue; }
-    let e = k; while (e < SLOTS && arr[e] === arr[k]) e++;
-    const src = old.find(s => s.sp === arr[k] && s.start < e && s.end > k && !used.has(s.id)); // keep its rule tags
+    let e = k; while (e < SLOTS && arr[e] === arr[k] && man[e] === man[k]) e++;
+    const src = old.find(s => s.sp === arr[k] && !!s.manual === man[k] && s.start < e && s.end > k && !used.has(s.id)); // keep its rule tags
     if (src) used.add(src.id);
-    out.push(src ? {...src, start: k, end: e} : {id: uid(), emp: empId, sp: arr[k], start: k, end: e});
+    const piece = src ? {...src, start: k, end: e} : {id: uid(), emp: empId, sp: arr[k], start: k, end: e};
+    if (man[k]) piece.manual = true; else delete piece.manual;
+    out.push(piece);
     k = e;
   }
   day.shifts = [...day.shifts.filter(s => s.emp !== empId), ...out];
@@ -2341,7 +2355,7 @@ document.addEventListener('pointerup', () => {
   if (!paint.active) return;
   paint.active = false; paint.justDone = true; setTimeout(() => paint.justDone = false, 50);
   const day = getDay(curDate), a = Math.min(paint.from, paint.to), b = Math.max(paint.from, paint.to) + 1;
-  setSlots(day, paint.emp, a, b, paint.sp);
+  setSlots(day, paint.emp, a, b, paint.sp, true);
   if (paint.sp && !day.working.includes(paint.emp)) day.working.push(paint.emp);
   placeBreaks(curDate, day); saveDay(curDate); render();
 });
@@ -2377,7 +2391,7 @@ $('#dlgForm').addEventListener('submit', e => {
   if (end <= start) { alert('The shift must end after it starts.'); return; }
   if (!f.emp.value) { alert('Pick an employee.'); return; }
   const data = {emp: f.emp.value, sp: f.sp.value, start, end};
-  if (dlgShift) { if (dlgShift.emp !== data.emp) delete dlgShift.sub; Object.assign(dlgShift, data); } else day.shifts.push({id: uid(), ...data});
+  if (dlgShift) { if (dlgShift.emp !== data.emp) delete dlgShift.sub; Object.assign(dlgShift, data, {manual: true}); } else day.shifts.push({id: uid(), ...data, manual: true});
   $('#dlg').close(); placeBreaks(curDate, day); saveDay(curDate); render();
 });
 $('#dlgDel').onclick = () => { const day = getDay(curDate); day.shifts = day.shifts.filter(s => s !== dlgShift); $('#dlg').close(); placeBreaks(curDate, day); saveDay(curDate); render(); };
@@ -2424,7 +2438,7 @@ document.addEventListener('click', e => {
     case 'srange-del': C.seasonRanges.splice(+b.dataset.i, 1); saveConfig(); render(); return;
     case 'gen':
       if (!day.working.length) { alert("Tick who's in today first."); return; }
-      if (day.shifts.length && !confirm('Replace the current schedule for this day?')) return;
+      if (day.shifts.some(s => !s.manual) && !confirm(day.shifts.some(s => s.manual) ? 'Replace the generated schedule for this day? Your hand-made shifts are kept.' : 'Replace the current schedule for this day?')) return;
       try { day.shifts = generate(curDate, day); placeBreaks(curDate, day); coverBreaks(curDate, day);
         for (let i = 0; i < 3 && fillWithBackups(curDate, day, day.shifts, computeCover(day)); i++) { placeBreaks(curDate, day); coverBreaks(curDate, day); }
         if (pairFifties(curDate, day)) { placeBreaks(curDate, day); coverBreaks(curDate, day); pairFifties(curDate, day); }
