@@ -895,8 +895,22 @@ function placeBreaks(date, day) {
   day.breaks = [];
   const cover = computeCover(day, date);
   const bl = Math.max(1, Math.ceil(R().mealBreakMin / 30));
+  const manualB = day.manualBreaks || {};
   cfg().employees.forEach(e => {
     const mine = day.shifts.filter(s => s.emp === e.id); if (!mine.length) return;
+    // breaks set by hand: exactly those (where the person works), no automatic ones
+    if (manualB[e.id]) {
+      const ks = [...new Set(manualB[e.id])].filter(k => mine.some(s => k >= s.start && k < s.end)).sort((a, b) => a - b);
+      for (let i = 0; i < ks.length;) {
+        const sp = mine.find(s => ks[i] >= s.start && ks[i] < s.end).sp; let j = i + 1;
+        while (j < ks.length && ks[j] === ks[j - 1] + 1 && mine.find(s => ks[j] >= s.start && ks[j] < s.end).sp === sp) j++;
+        const m = (R().meals || []).find(mm => ks[i] >= toSlot(mm.from) && ks[i] < endSlot(mm.to));
+        day.breaks.push({emp: e.id, sp, slot: ks[i], len: j - i, meal: m ? m.label : 'Break', manual: true});
+        if (cover[sp]) { const oh = spHours(spById(sp), date, day); for (let k = ks[i]; k < ks[j - 1] + 1; k++) if (isOpenAt(oh, k)) cover[sp][k]--; }
+        i = j;
+      }
+      return;
+    }
     const blocks = workBlocks(day, e.id), minBlock = Math.round((+R().minBreakBlockH || 0) * 2);
     R().meals.forEach(m => {
       const wS = toSlot(m.from), wE = endSlot(m.to);
@@ -1649,7 +1663,7 @@ function coverBreaks(date, day) {
     };
     let best = find();
     // nobody can cover it where it is and the outlet would be empty: try the break elsewhere in the meal time
-    if (!best && (() => { const c = computeCover(day, date); for (let k = a; k < z; k++) if (isOpenAt(h, k) && c[sp][k] <= 0) return true; return false; })()) {
+    if (!best && !b.manual && (() => { const c = computeCover(day, date); for (let k = a; k < z; k++) if (isOpenAt(h, k) && c[sp][k] <= 0) return true; return false; })()) {
       const meal = (R().meals || []).map(m => [toSlot(m.from), endSlot(m.to)]).find(([p, q]) => a >= p && a < q), orig = b.slot;
       const mine = day.shifts.filter(x => x.emp === b.emp);
       const at = k => mine.some(x => k >= x.start && k < x.end && x.sp === sp);
@@ -1964,8 +1978,8 @@ function gridHTML(day, need, cover, forPrint) {
     for (let k = 0; k < SLOTS; k++) {
       const s = mine.find(x => k >= x.start && k < x.end), b = brk.get(e.id + ':' + k), sp = s && spById(s.sp);
       const bg = b ? BREAK_COLOR : sp ? sp.color : '';
-      const tip = b ? `${b.meal} break ${slotTime(k)}` : sp ? `${sp.name} ${slotTime(s.start)}–${slotTime(s.end)}${s.manual ? ' (hand-made: kept when generating)' : ''}` : `${e.name}, ${slotTime(k)}: add a shift`;
-      h += `<td class="${slotTime(k).endsWith(':00') ? 'hr' : ''}${s && s.manual && !forPrint ? ' man' : ''}"${bg ? ` style="background:${bg}"` : ''}${forPrint ? '' : ` data-act="cell" data-emp="${e.id}" data-k="${k}" title="${esc(tip)}"`}></td>`;
+      const tip = b ? `${b.meal} break ${slotTime(k)}${b.manual ? ' (set by hand: kept when generating)' : ''}` : sp ? `${sp.name} ${slotTime(s.start)}–${slotTime(s.end)}${s.manual ? ' (hand-made: kept when generating)' : ''}` : `${e.name}, ${slotTime(k)}: add a shift`;
+      h += `<td class="${slotTime(k).endsWith(':00') ? 'hr' : ''}${((s && s.manual) || (b && b.manual)) && !forPrint ? ' man' : ''}"${bg ? ` style="background:${bg}"` : ''}${forPrint ? '' : ` data-act="cell" data-emp="${e.id}" data-k="${k}" title="${esc(tip)}"`}></td>`;
     }
     const ok = total === want && total > 0;
     h += `<td class="num ${total ? (ok ? 'ok' : 'off') : ''}">${total ? total.toFixed(2).replace('.', ',') : ''}</td><td class="num rest">${total ? (24 - total).toFixed(2).replace('.', ',') : ''}</td>${forPrint ? '<td class="sig"></td>' : ''}</tr>`;
@@ -1977,8 +1991,8 @@ function gridHTML(day, need, cover, forPrint) {
   if (forPrint) h += `<div class="glegend">${[...shown, ...(hkOn ? [HK_SP()] : [])].map(sp => `<span><i style="background:${sp.color}"></i>${esc(sp.name)}</span>`).join('')}<span><i style="background:${BREAK_COLOR}"></i>Break</span></div>`;
   else h += `<div class="glegend paint">${[...sps, ...(hkAny ? [HK_SP()] : [])].map(sp => `<button class="brush${ui.brush === sp.id ? ' on' : ''}" data-act="brush" data-v="${sp.id}" title="Paint ${esc(sp.name)}"><i style="background:${sp.color}"></i>${esc(sp.name)}</button>`).join('')}
       <button class="brush${ui.brush === 'erase' ? ' on' : ''}" data-act="brush" data-v="erase" title="Erase"><i class="eraser"></i>Eraser</button>
-      <span class="legend-only"><i style="background:${BREAK_COLOR}"></i>Break</span>${day.shifts.some(s => s.manual) ? '<span class="legend-only"><i style="background:#fff;box-shadow:inset 0 -4px 0 rgba(0,0,0,.45)"></i>Hand-made (kept when generating)</span>' : ''}</div>
-    <p class="help paint-help">${ui.brush ? `<b>${ui.brush === 'erase' ? 'Eraser' : esc(spById(ui.brush).name)}</b> selected: press and drag along a person's row. Right-click drag erases. Click the colour again or press Esc to stop.` : 'Pick a colour above, then drag along a person\'s row to add work. Right-click and drag to remove. Without a colour, click a cell to edit that shift.'}</p>`;
+      <button class="brush${ui.brush === 'break' ? ' on' : ''}" data-act="brush" data-v="break" title="Set breaks by hand"><i style="background:${BREAK_COLOR}"></i>Break</button>${Object.keys(day.manualBreaks || {}).length ? '<button class="brush" data-act="breaks-auto" title="Forget the breaks set by hand and place them automatically again">↺ Automatic breaks</button>' : ''}${day.shifts.some(s => s.manual) ? '<span class="legend-only"><i style="background:#fff;box-shadow:inset 0 -4px 0 rgba(0,0,0,.45)"></i>Hand-made (kept when generating)</span>' : ''}</div>
+    <p class="help paint-help">${ui.brush === 'break' ? '<b>Break</b> selected: drag over a person\'s shift to put their break there; right-click drag removes a break. Breaks you set stay (also when generating) until you press “Automatic breaks”. Press Esc to stop.' : ui.brush ? `<b>${ui.brush === 'erase' ? 'Eraser' : esc(spById(ui.brush).name)}</b> selected: press and drag along a person's row. Right-click drag erases. Click the colour again or press Esc to stop.` : 'Pick a colour above, then drag along a person\'s row to add work. Right-click and drag to remove. Without a colour, click a cell to edit that shift.'}</p>`;
   if (!forPrint) {
     h += `<details class="gcov"${day.shifts.length ? '' : ' open'}><summary>Staff on / needed per half hour</summary><table class="sgrid cov"><colgroup><col class="c-name">${'<col class="c-slot">'.repeat(SLOTS)}<col class="c-num"><col class="c-num"></colgroup><tbody>`;
     shown.forEach(sp => {
@@ -2341,13 +2355,14 @@ function paintCells(row, a, b, color) {
 }
 document.addEventListener('pointerdown', e => {
   const td = e.target.closest && e.target.closest('.sgrid td[data-emp]'); if (!td) return;
-  const erase = e.button === 2 || ui.brush === 'erase';
+  const erase = (e.button === 2 && ui.brush !== 'break') || ui.brush === 'erase';
   if (!erase && !ui.brush) return; // no colour picked: normal click opens the editor
   if (e.button !== 0 && e.button !== 2) return;
   e.preventDefault();
   const row = td.parentElement;
   paint.active = true; paint.emp = td.dataset.emp; paint.from = paint.to = +td.dataset.k; paint.row = row;
-  paint.sp = erase ? null : ui.brush; paint.color = erase ? '#ffffff' : spById(ui.brush).color;
+  paint.brk = ui.brush === 'break'; paint.unbrk = paint.brk && e.button === 2;
+  paint.sp = erase ? null : ui.brush; paint.color = paint.brk ? (paint.unbrk ? '#ffffff' : BREAK_COLOR) : erase ? '#ffffff' : spById(ui.brush).color;
   paint.base = [...row.querySelectorAll('td[data-emp]')].map(x => x.style.background);
   paintCells(row, paint.from, paint.to, paint.color);
 });
@@ -2362,6 +2377,13 @@ document.addEventListener('pointerup', () => {
   if (!paint.active) return;
   paint.active = false; paint.justDone = true; setTimeout(() => paint.justDone = false, 50);
   const day = getDay(curDate), a = Math.min(paint.from, paint.to), b = Math.max(paint.from, paint.to) + 1;
+  if (paint.brk) { // set or remove this person's break(s) by hand; their shifts stay as they are
+    const mb = (day.manualBreaks ||= {});
+    const cur = new Set(mb[paint.emp] || (day.breaks || []).filter(x => x.emp === paint.emp).flatMap(x => Array.from({length: x.len}, (_, i) => x.slot + i)));
+    for (let k = a; k < b; k++) { if (paint.unbrk) cur.delete(k); else if (day.shifts.some(s => s.emp === paint.emp && k >= s.start && k < s.end)) cur.add(k); }
+    mb[paint.emp] = [...cur].sort((x, y) => x - y);
+    placeBreaks(curDate, day); saveDay(curDate); render(); return;
+  }
   setSlots(day, paint.emp, a, b, paint.sp, true);
   if (paint.sp && !day.working.includes(paint.emp)) day.working.push(paint.emp);
   placeBreaks(curDate, day); saveDay(curDate); render();
@@ -2455,6 +2477,7 @@ document.addEventListener('click', e => {
     case 'dview': ui.dview = b.dataset.v; try { localStorage.setItem('staffsched.dview', ui.dview); } catch (e) {} render(); return;
     case 'add-shift': openShift(null, b.dataset.sp); return;
     case 'brush': ui.brush = ui.brush === b.dataset.v ? null : b.dataset.v; render(); return;
+    case 'breaks-auto': delete day.manualBreaks; placeBreaks(curDate, day); coverBreaks(curDate, day); saveDay(curDate); render(); return;
     case 'cell': {
       if (ui.brush || paint.justDone) return; // painting handles it
       const s = day.shifts.find(x => x.emp === b.dataset.emp && +b.dataset.k >= x.start && +b.dataset.k < x.end);
