@@ -1848,8 +1848,12 @@ function loadCrew(date, day) {
   saveDay(date); return true;
 }
 
+// Lists of people (Who's in, the schedule, Setup, the shift window) in groups: headwaiters, everyone else,
+// 50/50s, supervisors, managers. Within a group, in the order they were added.
+const empGroup = e => e.headAt ? 0 : e.manager ? 4 : e.supervisor ? 3 : e.fifty ? 2 : 1;
+const orderedEmps = () => cfg().employees.map((e, i) => [e, i]).sort((a, b) => empGroup(a[0]) - empGroup(b[0]) || a[1] - b[1]).map(x => x[0]);
 function renderDay() {
-  const {salesPoints: sps, employees: emps} = cfg();
+  const sps = cfg().salesPoints, emps = orderedEmps();
   const day = getDay(curDate);
   // a new day starts with yesterday's crew (once; after that it's up to you)
   if (!day.working.length && !day.shifts.length && !day.crewAuto) loadCrew(curDate, day);
@@ -1960,7 +1964,7 @@ function dayResultsHTML(day) {
 
 // Spreadsheet-style schedule: one row per person, one column per half hour 05:00–05:00.
 function gridHTML(day, need, cover, forPrint) {
-  const sps = cfg().salesPoints, emps = cfg().employees, working = new Set(day.working);
+  const sps = cfg().salesPoints, emps = orderedEmps(), working = new Set(day.working);
   const onSchedule = new Set(day.shifts.map(s => s.emp));
   const people = emps.filter(e => working.has(e.id) || onSchedule.has(e.id));
   if (!people.length) return `<div class="tl-wrap"><div class="empty">Tick who's in today, then press Generate schedule.</div></div>`;
@@ -2109,7 +2113,7 @@ function hoursTarget(el) {
 function renderSetup() {
   if (ui.hoursSeason === undefined) ui.hoursSeason = seasonFor(curDate) || 'shoulder';
   const hs = ui.hoursSeason && cfg().seasons && cfg().seasons[ui.hoursSeason] ? ui.hoursSeason : '';
-  const {salesPoints: sps, employees: emps, rules} = cfg();
+  const {salesPoints: sps, rules} = cfg(), emps = orderedEmps();
   const spCards = sps.map(sp => `<div class="card">
     <div class="sp-top">
       <input type="color" value="${sp.color}" data-ch="sp" data-id="${sp.id}" data-f="color" title="Colour">
@@ -2394,7 +2398,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && ui.brush) 
 /* ============ Shift dialog ============ */
 let dlgShift = null;
 function openShift(shift, spId, preset) {
-  const {salesPoints: sps, employees: emps} = cfg();
+  const sps = cfg().salesPoints, emps = orderedEmps();
   const day = getDay(curDate);
   dlgShift = shift;
   const f = $('#dlgForm');
